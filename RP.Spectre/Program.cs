@@ -38,7 +38,7 @@ namespace RP.Spectre
             var validationWatch = new CollectingLogSink();
             var log = new Logger(new ConsoleLogSink(), validationWatch) { MinimumLevel = LogLevel.Info };
 
-            log.Info("Spectre", "Phase 1 — lit spinning cube." +
+            log.Info("Spectre", "Phase 2 — instanced cube grid." +
                                  (maxFrames > 0 ? $" Auto-closing after {maxFrames} frames." : string.Empty));
 
             IWindow window = VulkanWindow.Create("SPECTRE — Phase 1", 1280, 720);
@@ -49,8 +49,8 @@ namespace RP.Spectre
             // The window owns the truth about its size; tell the renderer to rebuild the swapchain on change.
             window.FramebufferResize += (Vector2D<int> _) => renderer.NotifyResize();
 
-            // Park the camera off to one side and above the origin, looking at the cube.
-            renderer.Camera.Position = new Vector3d(2.5, 2.0, 3.5);
+            // Pull the camera back and above the origin to take in the whole instanced cube grid.
+            renderer.Camera.Position = new Vector3d(0, 12, 45);
             renderer.Camera.Target = Vector3d.Origin;
 
             // 60 Hz simulation, decoupled from however fast the GPU presents.
