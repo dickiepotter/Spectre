@@ -5,6 +5,25 @@ A per-phase narrative of *what* was built, *why*, and every *deviation* from the
 
 ---
 
+## Phase 6 — Combat depth  *(acceptance met)*
+
+- **Weapon families + fire discipline**: `WeaponFamily`, `Capacitor` (shared draw/recharge), `HeatSink`
+  (overheat + vent hysteresis), `Weapon` (triple-gated firing: cooldown + heat + charge; ballistic
+  recoil), `WeaponCatalog` (the S18 table incl. the over-class `Prototype` guns — higher damage, more
+  heat, heavier draw).
+- **Facet shields**: `FacetShields` — six independent directional facets; a hit's local direction picks
+  the facing, so flanking drops one facet while the others hold (tested on a cruiser).
+- **Ballistic lead**: `InterceptSolver` solves the intercept quadratic via **`RP.Math.PolynomialRoots`**
+  (maths in Math, not reimplemented) — stationary/hitscan/leading/unreachable cases tested for time
+  consistency.
+- **Point-defence**: `PointDefenceSystem` + `GuidedMissile` — concentrates fire on the closest in-range
+  missile; weak missiles are intercepted, tanky ones leak through.
+- *Verified:* each family has a distinct role; missiles can be intercepted; the prototype edge is real but
+  costed. 8 + 2 + 5 + 2 = 17 new tests.
+- Tests: 780 RP.Math + 71 RP.Game + 33 Spectre = **884 total**.
+
+---
+
 ## Phase 5 — Shields + hull + damage routing  *(combat core + lethality check met)*
 
 - **`RP.Spectre.Combat`**: `Shield` (capacity/regen/**regen delay** — the key lever; suppressed under
