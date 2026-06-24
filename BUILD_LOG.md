@@ -21,11 +21,25 @@ A per-phase narrative of *what* was built, *why*, and every *deviation* from the
   *Verified:* 150-frame run draws the triangle, survives the scripted resize, tears down clean, **zero
   validation errors**, exit 0.
 
+### Done (cont.)
+
+- **RP.Math upgraded** (separate repo, committed): renamed the double `Vector` → `Vector3d` with an
+  assembly-wide `Vector` alias (all 744 existing tests pass unchanged), and added the **float vector
+  family** `Vector2`/`Vector3`/`Vector4` (completionist ops, edge-case tests, `Vector3d` widen/narrow
+  + `System.Numerics` GPU interop). 762 RP.Math tests pass. *Deferred:* double `Vector2d`/`Vector4d`
+  (not yet needed; `Vector3d` covers true-position).
+- **Vertex buffers**: `Rendering/Vertex` (position+colour, blittable) and `VulkanRenderer.Buffers.cs`
+  (FindMemoryType, CreateBuffer, **staging upload** to a DEVICE_LOCAL buffer, one-time CopyBuffer). The
+  test triangle now draws from a real device-local vertex buffer; pipeline has vertex input
+  binding/attributes. *Verified:* clean 120-frame run, resize OK, zero validation errors.
+  - *Allocator note:* one `DeviceMemory` per buffer for now — to be replaced by a block sub-allocator /
+    VMA in Phase 2 (scale), as the brief requires. Flagged in code.
+
 ### Next in Phase 1
 
-Vertex/index buffers via a memory allocator → a `Mesh` type → depth buffering → a camera controller
-producing view/projection from **RP.Math** → a basic lit shader → render a cube, then a grid of cubes.
-This is where the **float vector family** (Vector3/Vector3d) gets added to RP.Math for vertex data.
+Index buffers + a `Mesh` type → a camera controller (view/projection from **RP.Math** + a Vulkan
+clip-correction: Y-flip and depth→[0,1], since RP.Math projections are GL-style [-1,1]) → push-constant
+MVP → depth buffering → a basic lit shader → render a cube, then a grid of cubes.
 
 ---
 
