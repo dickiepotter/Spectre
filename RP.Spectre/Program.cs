@@ -10,6 +10,7 @@ namespace RP.Spectre
     using RP.Game.Platform;
     using RP.Game.Scene;
     using RP.Math;
+    using RP.Spectre.State;
     using RP.Spectre.World;
     using Silk.NET.Input;
     using Silk.NET.Maths;
@@ -64,6 +65,21 @@ namespace RP.Spectre
             bool scriptedFlight = maxFrames > 0;
             if (scriptedFlight) ship.Velocity = new Vector3d(0, 0, -8000); // 8 km/s along the hull
 
+            // Settings + save/resume. The full menu UI (Main Menu / Continue) arrives with text rendering;
+            // for now settings load on boot, a prior save auto-continues, and F5 quicksaves (build brief S21).
+            SpectreSettings settings = SaveSystem.LoadSettings();
+            shipController.FlightAssist = settings.FlightAssistDefault;
+            renderer.Camera.FieldOfView = new Angle(settings.FieldOfViewDegrees, AngleUnits.DEG);
+            int worldSeed = 1;
+            if (!scriptedFlight && SaveSystem.TryLoad(out SpectreSaveData? existingSave) && existingSave is not null)
+            {
+                SaveSystem.ApplyTo(existingSave, ship);
+                shipController.FlightAssist = existingSave.FlightAssist;
+                worldSeed = existingSave.WorldSeed;
+                log.Info("Save", $"Continued from save (ship at {existingSave.ShipPosition.ToVector():0}).");
+            }
+            bool previousQuicksaveKey = false;
+
             // Controls: WASD thrust/strafe, Space/Ctrl up/down, mouse steer, Q/E roll, Shift boost,
             // T toggles flight-assist.
             using IInputContext input = window.CreateInput();
@@ -103,6 +119,15 @@ namespace RP.Spectre
                 if (keyboard is not null && mouse is not null)
                 {
                     shipController.ReadControls(keyboard, mouse);
+
+                    // F5 quicksave (rising edge), so the save/resume loop is usable before the menu exists.
+                    bool quicksaveKey = keyboard.IsKeyPressed(Key.F5);
+                    if (quicksaveKey && !previousQuicksaveKey)
+                    {
+                        SaveSystem.Save(SaveSystem.Capture(ship, shipController.FlightAssist, worldSeed, missionProgress: 0));
+                        log.Info("Save", "Quicksaved.");
+                    }
+                    previousQuicksaveKey = quicksaveKey;
                 }
 
                 int steps = accumulator.Advance(frameSeconds);

@@ -5,6 +5,24 @@ A per-phase narrative of *what* was built, *why*, and every *deviation* from the
 
 ---
 
+## Phase 3.5 — Game shell: state machine, save/resume, settings  *(testable core met; menu UI deferred)*
+
+- **`RP.Game.Mechanics.AppStateMachine`** (+ `AppState`): Boot → MainMenu → Playing ⇄ Paused → Exiting,
+  with a legal-transition table and a change event (5 tests).
+- **`RP.Game.Mechanics.JsonStore`**: generic persistence — atomic write (temp + replace), corruption-safe
+  load (missing/garbage → false, never throws), per-user data directory (4 tests).
+- **`RP.Spectre.State`**: `SpectreSaveData` (versioned: ship transform/velocity/orientation/ang-vel,
+  flight-assist, world seed, mission progress) + `SpectreSettings` (video/audio/controls/difficulty with
+  defaults + `ClampToValid`) + `SaveSystem` (capture/apply to the `RigidBody`).
+- *Verified:* **save round-trip** — the brief's single most important non-graphics test (S20) — through
+  disk, plus capture/apply, settings round-trip, defaults, and clamping (6 Spectre tests).
+- Wired into the game: settings load on boot, a prior save **auto-continues**, **F5 quicksaves**.
+- *Deferred:* the on-screen Main Menu / Pause / Settings UI needs text/UI rendering (a Phase-12 polish
+  item); the state machine + persistence beneath it are complete and tested.
+- Tests: 780 RP.Math + 64 RP.Game + 6 Spectre.
+
+---
+
 ## Phase 3 — Newtonian flight + floating origin  *(acceptance met)*
 
 - **Integrators in RP.Math** (`Numerics/Integrators`, the Phase 0 gap): explicit/semi-implicit Euler + RK4,
