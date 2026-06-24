@@ -5,6 +5,21 @@ A per-phase narrative of *what* was built, *why*, and every *deviation* from the
 
 ---
 
+## Phase 4 — Collision + crash damage  *(physics + damage curve done; in-world wiring folds into Phase 5)*
+
+- **`RP.Game.Physics.CollisionResolver`**: reduced mass, sphere-overlap detection (contact normal +
+  penetration), impact energy (½·reduced-mass·closing-speed²), and impulse resolution — equal-and-opposite,
+  momentum-conserving, restitution-controlled. Tested: reduced mass, momentum conservation, elastic
+  velocity swap, separating-bodies no-op, light-vs-heavy asymmetry, energy ∝ speed² (7 tests).
+- **`RP.Spectre.Combat.ImpactModel`**: the crash-damage curve — soft threshold (gentle bumps → no damage)
+  then linear in excess energy. Tuned so a head-on fighter ram exceeds the Spectre's 180 hull HP (lethal)
+  while a 5 m/s drift does nothing (4 tests).
+- *Sequencing:* "ramming destroys the ship" needs a Hull HP bar to subtract from — that lands with Phase 5
+  (shields + hull + destruction → debris), where the resolver + curve get wired to in-world obstacles.
+- Tests: 780 RP.Math + 71 RP.Game + 10 Spectre.
+
+---
+
 ## Phase 3.5 — Game shell: state machine, save/resume, settings  *(testable core met; menu UI deferred)*
 
 - **`RP.Game.Mechanics.AppStateMachine`** (+ `AppState`): Boot → MainMenu → Playing ⇄ Paused → Exiting,
