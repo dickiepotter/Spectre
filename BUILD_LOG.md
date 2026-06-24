@@ -35,11 +35,28 @@ A per-phase narrative of *what* was built, *why*, and every *deviation* from the
   - *Allocator note:* one `DeviceMemory` per buffer for now — to be replaced by a block sub-allocator /
     VMA in Phase 2 (scale), as the brief requires. Flagged in code.
 
-### Next in Phase 1
+### Done (cont.) — lit 3D cube (Phase 1 core acceptance met)
 
-Index buffers + a `Mesh` type → a camera controller (view/projection from **RP.Math** + a Vulkan
-clip-correction: Y-flip and depth→[0,1], since RP.Math projections are GL-style [-1,1]) → push-constant
-MVP → depth buffering → a basic lit shader → render a cube, then a grid of cubes.
+- **Camera** (`Rendering/Camera`): view/projection from **RP.Math** (`LookAt` + `PerspectiveFieldOfView`)
+  plus a `VulkanClipCorrection` matrix (Y-flip + depth [-1,1]→[0,1]) — the one place Vulkan's clip-space
+  quirks live. `ToColumnMajorFloats` flattens RP.Math's row-indexed matrices to GLSL column-major. Unit-
+  tested (transpose, clip correction, finiteness).
+- **Index buffers + cube mesh**: `Vertex` gains a normal; a 24-vertex/36-index unit cube (per-face
+  normals + colours) in device-local buffers; `CmdDrawIndexed`.
+- **Depth buffer** (`VulkanRenderer.Depth.cs`): D32 depth image/view sized to the swapchain (rebuilt on
+  resize), cleared each frame, depth-test+write in the pipeline, fed to dynamic rendering as a depth
+  attachment.
+- **Lit mesh shaders** (`mesh.vert`/`mesh.frag`): a 128-byte push constant (MVP + model) drives a Lambert
+  diffuse + ambient term from the world-space normal.
+- The game positions the camera and spins the cube from the sim clock. *Verified:* clean 150-frame run,
+  survives resize, **zero validation errors**, exit 0. (Visual correctness is the human smoke pass.)
+- Tests: 762 RP.Math + 37 RP.Game + 1 Spectre, all green.
+
+### Remaining Phase 1 polish / next
+
+A "grid of cubes" (multiple model matrices) folds naturally into **Phase 2** (GPU instancing + a real
+block/VMA allocator, texture/material loading, frustum culling, input, OpenAL audio bring-up), so it is
+taken up there rather than as a one-off here.
 
 ---
 

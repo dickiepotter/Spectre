@@ -4,22 +4,21 @@ namespace RP.Spectre
     using System.Diagnostics;
     using RP.Game.Core;
     using RP.Game.Core.Logging;
-    using RP.Game.Graphics;
     using RP.Game.Graphics.Vulkan;
     using RP.Game.Platform;
+    using RP.Math;
     using Silk.NET.Maths;
     using Silk.NET.Windowing;
 
     /// <summary>
     /// The Spectre executable's entry point: open a window, bring up the Vulkan renderer, and run the
-    /// fixed-timestep loop, clearing the screen to a slowly-cycling colour each frame.
+    /// fixed-timestep loop, drawing a lit, spinning 3D cube each frame.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// This is the Phase 0 milestone made real (build brief S19): a window that clears every frame on a
-    /// stable fixed-timestep loop, with validation layers on and routed to the engine logger, surviving
-    /// resize/minimise, and tearing down cleanly. There is no gameplay yet — the colour cycle simply
-    /// proves the loop is running and the GPU is presenting.
+    /// This is the Phase 0/1 milestone made real (build brief S19): a window rendering a lit, moving 3D
+    /// scene through our from-scratch Vulkan renderer, with all transforms from RP.Math, validation layers
+    /// on and routed to the engine logger, surviving resize/minimise, and tearing down cleanly.
     /// </para>
     /// <para>
     /// Pass <c>--frames N</c> (or set <c>SPECTRE_FRAMES=N</c>) to auto-close after N rendered frames. That
@@ -39,16 +38,20 @@ namespace RP.Spectre
             var validationWatch = new CollectingLogSink();
             var log = new Logger(new ConsoleLogSink(), validationWatch) { MinimumLevel = LogLevel.Info };
 
-            log.Info("Spectre", "Phase 0 — window + Vulkan clear loop." +
+            log.Info("Spectre", "Phase 1 — lit spinning cube." +
                                  (maxFrames > 0 ? $" Auto-closing after {maxFrames} frames." : string.Empty));
 
-            IWindow window = VulkanWindow.Create("SPECTRE — Phase 0", 1280, 720);
+            IWindow window = VulkanWindow.Create("SPECTRE — Phase 1", 1280, 720);
             window.Initialize();
 
-            using IRenderer renderer = new VulkanRenderer(window, log, enableValidation: true);
+            using var renderer = new VulkanRenderer(window, log, enableValidation: true);
 
             // The window owns the truth about its size; tell the renderer to rebuild the swapchain on change.
             window.FramebufferResize += (Vector2D<int> _) => renderer.NotifyResize();
+
+            // Park the camera off to one side and above the origin, looking at the cube.
+            renderer.Camera.Position = new Vector3d(2.5, 2.0, 3.5);
+            renderer.Camera.Target = Vector3d.Origin;
 
             // 60 Hz simulation, decoupled from however fast the GPU presents.
             var accumulator = new FixedTimestepAccumulator(fixedDeltaSeconds: 1.0 / 60.0);
@@ -73,8 +76,12 @@ namespace RP.Spectre
                     // (Update(time) — physics/AI/combat — goes here in later phases.)
                 }
 
-                // Cycle the clear colour from the simulation clock so the screen visibly changes each frame.
-                renderer.ClearColor = HueToRgb(time.TotalSeconds * 0.1);
+                // Spin the cube from the simulation clock: a full turn about Y every ~6 s, plus a slower
+                // tumble about X so all faces come into view.
+                double spin = time.TotalSeconds;
+                renderer.ModelTransform =
+                    Matrix.RotationMatrixAboutYAxis(spin) * Matrix.RotationMatrixAboutXAxis(spin * 0.5);
+
                 renderer.DrawFrame(accumulator.Alpha);
                 renderedFrames++;
 
@@ -117,27 +124,6 @@ namespace RP.Spectre
             if (int.TryParse(env, out int envN) && envN > 0) return envN;
 
             return 0; // 0 = run until the window is closed
-        }
-
-        /// <summary>
-        /// A tiny HSV→RGB for a fully-saturated hue sweep, so the clear colour cycles through the spectrum.
-        /// Kept local and trivial; real colour work later lives in the engine, built on RP.Math.
-        /// </summary>
-        private static (float R, float G, float B, float A) HueToRgb(double hueTurns)
-        {
-            double h = (hueTurns % 1.0 + 1.0) % 1.0 * 6.0; // 0..6
-            double x = 1.0 - Math.Abs(h % 2.0 - 1.0);
-            (double r, double g, double b) = (int)h switch
-            {
-                0 => (1.0, x, 0.0),
-                1 => (x, 1.0, 0.0),
-                2 => (0.0, 1.0, x),
-                3 => (0.0, x, 1.0),
-                4 => (x, 0.0, 1.0),
-                _ => (1.0, 0.0, x),
-            };
-
-            return ((float)r, (float)g, (float)b, 1f);
         }
     }
 }
