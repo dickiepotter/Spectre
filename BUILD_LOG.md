@@ -5,6 +5,21 @@ A per-phase narrative of *what* was built, *why*, and every *deviation* from the
 
 ---
 
+## Phase 8 — Sensors / EW  *(sensor model met; debris drift reuses physics)*
+
+- **`RP.Spectre.Sensors`**: `Signature` (boost/fire/size raise it, going dark drops it to a floor),
+  `SensorModel` (signal strength falling with distance and **gas/debris occlusion**), `LockOnTracker`
+  (locks build with steady signal, **decay/break when the target goes dark or behind cover**).
+- *Verified:* going dark is the lowest signature; occlusion cuts the signal to zero when fully blocked;
+  a lock acquires on a strong steady contact, never builds on a too-weak one, and **breaks when the
+  signal is lost** — i.e. you can shake a pursuer in a cloud or behind a hulk (S8.4). 6 tests.
+- *Note:* debris fields are `RigidBody` bodies with conserved momentum (already covered by Phase 3
+  physics + Phase 2 instancing/pooling); gas clouds feed the `occlusion` term. The in-world debris
+  generator/pool builds on those.
+- Tests: 780 RP.Math + 81 RP.Game + 41 Spectre = **902 total**.
+
+---
+
 ## Phase 7 — Ships + AI + a real battle  *(headless battle acceptance met)*
 
 - **`RP.Game.Ai.Steering`**: Reynolds behaviours — seek, flee, arrive (eased stop), pursue (leads a moving
