@@ -5,7 +5,46 @@ A per-phase narrative of *what* was built, *why*, and every *deviation* from the
 
 ---
 
-## Phase 1 — Rendering foundation  *(in progress)*
+## Phase 3 — Newtonian flight + floating origin  *(acceptance met)*
+
+- **Integrators in RP.Math** (`Numerics/Integrators`, the Phase 0 gap): explicit/semi-implicit Euler + RK4,
+  tested against closed-form cases (7 tests).
+- **`RP.Game.Physics.RigidBody`**: double-precision 6-DoF body (position/velocity, quaternion orientation,
+  angular velocity), world/local force & torque, `Integrate` = semi-implicit Euler + axis-angle quaternion
+  integration. No drag — momentum persists. Tested (conserved momentum, constant thrust, frame-rate
+  independence, local→world, spin-up).
+- **`RP.Game.Scene.FloatingOrigin`**: camera-relative rebasing (`ToRenderSpace`/`FromRenderSpace`,
+  `MaybeRebase` past a threshold). Renderer rebases all instances by `RenderOrigin` each frame, so drawing
+  happens in small, precise coordinates centred on the player.
+- **`RP.Spectre.World.ShipController`**: the Spectre's flight — WASD thrust/strafe, Space/Ctrl up/down,
+  mouse steer, Q/E roll, Shift boost, **T toggles flight-assist** (counter-thrust bleeds lateral drift,
+  counter-torque stops spin, brakes off-throttle). Cockpit camera rides the ship; floating origin follows.
+- *Verified:* a scripted 8 km/s burn flew **~24.7 km, rebasing 6× (every ~4096 m), zero validation
+  errors** — precision holds at range. Tests: 780 RP.Math + 55 RP.Game + 1 Spectre.
+- *Deferred:* the velocity-vector (prograde) marker → HUD phase; assist on/off "feel" is a human smoke test.
+
+---
+
+## Phase 2 — Renderer at scale + input/audio  *(core acceptance met)*
+
+- **GPU instancing**: 16³ = 4096 cubes in one `CmdDrawIndexed` via a per-instance vertex binding
+  (offset + colour); push constant carries view-projection + a shared spin.
+- **Frustum culling**: `RP.Math.Frustum` (Gribb–Hartmann, 9 tests) + `Game.Scene.FrustumCuller` (the
+  system); culled survivors streamed into per-frame host-visible instance buffers. From inside the grid,
+  ~2434/4096 visible — the rest rejected.
+- **Input**: `Game.Scene.FreeFlyCamera` (Silk.NET.Input) — WASD/QE move, right-mouse look, Shift boost,
+  frame-rate-independent.
+- **Audio**: `Game.Audio.AudioMath` (attenuation/Doppler/dB/bus gain — 7 headless tests, brief S15.3) +
+  `Game.Audio.AudioEngine` (OpenAL via Silk.NET; positional one-shot playback; bundled OpenAL Soft).
+- *Verified:* one run does instancing + culling + input + a positional tone together, zero validation
+  errors, clean teardown. Tests: 771 RP.Math + 44 RP.Game + 1 Spectre.
+- *Deferred (quality, not acceptance):* texture/material loading + bindless descriptors, and replacing the
+  one-allocation-per-buffer scheme with a block/VMA sub-allocator — revisited when the asset pipeline and
+  real meshes land.
+
+---
+
+## Phase 1 — Rendering foundation  *(complete)*
 
 ### Done so far
 

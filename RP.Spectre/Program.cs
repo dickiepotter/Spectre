@@ -6,9 +6,11 @@ namespace RP.Spectre
     using RP.Game.Core;
     using RP.Game.Core.Logging;
     using RP.Game.Graphics.Vulkan;
+    using RP.Game.Physics;
     using RP.Game.Platform;
     using RP.Game.Scene;
     using RP.Math;
+    using RP.Spectre.World;
     using Silk.NET.Input;
     using Silk.NET.Maths;
     using Silk.NET.Windowing;
@@ -41,7 +43,7 @@ namespace RP.Spectre
             var validationWatch = new CollectingLogSink();
             var log = new Logger(new ConsoleLogSink(), validationWatch) { MinimumLevel = LogLevel.Info };
 
-            log.Info("Spectre", "Phase 2 — instanced cube grid." +
+            log.Info("Spectre", "Phase 3 — Newtonian flight (WASD thrust, mouse steer, Q/E roll, T assist)." +
                                  (maxFrames > 0 ? $" Auto-closing after {maxFrames} frames." : string.Empty));
 
             IWindow window = VulkanWindow.Create("SPECTRE — Phase 1", 1280, 720);
@@ -52,17 +54,21 @@ namespace RP.Spectre
             // The window owns the truth about its size; tell the renderer to rebuild the swapchain on change.
             window.FramebufferResize += (Vector2D<int> _) => renderer.NotifyResize();
 
-            // Sit just outside the grid looking in, so the camera frustum excludes the cubes off to the
-            // sides and behind — frustum culling then visibly draws far fewer than all 4096.
-            renderer.Camera.Position = new Vector3d(0, 4, 17);
-            renderer.Camera.Target = Vector3d.Origin;
+            // The player ship: a Newtonian rigid body starting just outside the cube grid, looking in.
+            var ship = new RigidBody { Position = new Vector3d(0, 4, 25) };
+            var shipController = new ShipController(ship);
+            var floatingOrigin = new FloatingOrigin(rebaseThreshold: 4096);
 
-            // Free-fly debug camera: WASD move, Q/E down/up, hold right mouse to look, Shift to boost.
+            // In bounded mode there is no pilot, so script a fast burn to prove the ship can fly tens of km
+            // and the floating origin rebases without precision loss or validation errors.
+            bool scriptedFlight = maxFrames > 0;
+            if (scriptedFlight) ship.Velocity = new Vector3d(0, 0, -8000); // 8 km/s along the hull
+
+            // Controls: WASD thrust/strafe, Space/Ctrl up/down, mouse steer, Q/E roll, Shift boost,
+            // T toggles flight-assist.
             using IInputContext input = window.CreateInput();
             IKeyboard? keyboard = input.Keyboards.Count > 0 ? input.Keyboards[0] : null;
             IMouse? mouse = input.Mice.Count > 0 ? input.Mice[0] : null;
-            var flyCam = new FreeFlyCamera();
-            flyCam.AimAt(renderer.Camera.Position, renderer.Camera.Target);
 
             // Audio bring-up: open OpenAL and play a positional tone off to one side so it pans as you fly.
             // Guarded — a machine with no audio device must not stop the game.
@@ -93,18 +99,37 @@ namespace RP.Spectre
                 double frameSeconds = now - lastSeconds;
                 lastSeconds = now;
 
+                // Sample input once per frame into a thrust/torque intent for this frame's fixed steps.
+                if (keyboard is not null && mouse is not null)
+                {
+                    shipController.ReadControls(keyboard, mouse);
+                }
+
                 int steps = accumulator.Advance(frameSeconds);
                 for (int i = 0; i < steps; i++)
                 {
                     time = time.Advanced();
-                    // (Update(time) — physics/AI/combat — goes here in later phases.)
+                    if (scriptedFlight)
+                    {
+                        ship.Integrate(accumulator.FixedDeltaSeconds); // coast the scripted burn
+                    }
+                    else
+                    {
+                        shipController.FixedStep(accumulator.FixedDeltaSeconds); // 6-DoF physics on a fixed step
+                    }
                 }
 
-                // Free-fly camera from this frame's input (variable dt → frame-rate-independent speed).
-                if (keyboard is not null && mouse is not null)
+                // Floating origin follows the ship, so rendering stays jitter-free however far you fly.
+                if (floatingOrigin.MaybeRebase(ship.Position))
                 {
-                    flyCam.Update(renderer.Camera, keyboard, mouse, frameSeconds);
+                    log.Info("World", $"Floating-origin rebased at ~{ship.Position.Magnitude:0} m out — render space reset, no jitter.");
                 }
+                renderer.RenderOrigin = floatingOrigin.Origin;
+
+                // Cockpit camera rides the ship: render-space position, looking along the hull.
+                renderer.Camera.Position = floatingOrigin.ToRenderSpace(ship.Position);
+                renderer.Camera.Target = renderer.Camera.Position + ship.Forward;
+                renderer.Camera.Up = ship.Up;
 
                 // Keep the audio listener on the camera so the positional tone pans as you move.
                 if (audio is not null)
