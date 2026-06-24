@@ -6,7 +6,9 @@ namespace RP.Spectre
     using RP.Game.Core.Logging;
     using RP.Game.Graphics.Vulkan;
     using RP.Game.Platform;
+    using RP.Game.Scene;
     using RP.Math;
+    using Silk.NET.Input;
     using Silk.NET.Maths;
     using Silk.NET.Windowing;
 
@@ -54,6 +56,13 @@ namespace RP.Spectre
             renderer.Camera.Position = new Vector3d(0, 4, 17);
             renderer.Camera.Target = Vector3d.Origin;
 
+            // Free-fly debug camera: WASD move, Q/E down/up, hold right mouse to look, Shift to boost.
+            using IInputContext input = window.CreateInput();
+            IKeyboard? keyboard = input.Keyboards.Count > 0 ? input.Keyboards[0] : null;
+            IMouse? mouse = input.Mice.Count > 0 ? input.Mice[0] : null;
+            var flyCam = new FreeFlyCamera();
+            flyCam.AimAt(renderer.Camera.Position, renderer.Camera.Target);
+
             // 60 Hz simulation, decoupled from however fast the GPU presents.
             var accumulator = new FixedTimestepAccumulator(fixedDeltaSeconds: 1.0 / 60.0);
             var time = new GameTime(accumulator.FixedDeltaSeconds, 0.0, 0);
@@ -75,6 +84,12 @@ namespace RP.Spectre
                 {
                     time = time.Advanced();
                     // (Update(time) — physics/AI/combat — goes here in later phases.)
+                }
+
+                // Free-fly camera from this frame's input (variable dt → frame-rate-independent speed).
+                if (keyboard is not null && mouse is not null)
+                {
+                    flyCam.Update(renderer.Camera, keyboard, mouse, frameSeconds);
                 }
 
                 // Spin the cube from the simulation clock: a full turn about Y every ~6 s, plus a slower
