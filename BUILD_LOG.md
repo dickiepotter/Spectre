@@ -5,6 +5,30 @@ A per-phase narrative of *what* was built, *why*, and every *deviation* from the
 
 ---
 
+## Phase 1 — Rendering foundation  *(in progress)*
+
+### Done so far
+
+- **SPIR-V build pipeline.** Shader sources (GLSL) live in `RP.Game/Rendering/Shaders`; an MSBuild step
+  (`CompileShaders` + `EmbedShaders`) runs `glslc --target-env=vulkan1.3` and **embeds** the resulting
+  SPIR-V into `RP.Game.dll`, so bytecode travels with the assembly and consumers need no loose files.
+  glslc is located via `VULKAN_SDK` with a fallback to the known install path (recorded; generalise if
+  the SDK moves).
+- **Graphics pipeline + first triangle.** `VulkanRenderer.Pipeline.cs` (partial class): loads shader
+  modules from the embedded SPIR-V, builds a pipeline using **dynamic rendering** (colour format via
+  `PipelineRenderingCreateInfo`, no render-pass object) and **dynamic viewport/scissor** (so a resize
+  needs no pipeline rebuild), and draws a 3-vertex triangle whose colours interpolate across the face.
+  *Verified:* 150-frame run draws the triangle, survives the scripted resize, tears down clean, **zero
+  validation errors**, exit 0.
+
+### Next in Phase 1
+
+Vertex/index buffers via a memory allocator → a `Mesh` type → depth buffering → a camera controller
+producing view/projection from **RP.Math** → a basic lit shader → render a cube, then a grid of cubes.
+This is where the **float vector family** (Vector3/Vector3d) gets added to RP.Math for vertex data.
+
+---
+
 ## Phase 0 — Engine bring-up + Math inventory  *(COMPLETE — all acceptance criteria met)*
 
 ### Vulkan device bring-up (the rest of Phase 0)
