@@ -5,7 +5,34 @@ A per-phase narrative of *what* was built, *why*, and every *deviation* from the
 
 ---
 
-## Phase 0 — Engine bring-up + Math inventory  *(in progress — foundation landed; Vulkan deferred)*
+## Phase 0 — Engine bring-up + Math inventory  *(COMPLETE — all acceptance criteria met)*
+
+### Vulkan device bring-up (the rest of Phase 0)
+
+Built the full Vulkan 1.3 spine in `RP.Game` (`Graphics/IRenderer`, `Graphics/Vulkan/VulkanRenderer`,
+`Platform/VulkanWindow`), via Silk.NET 2.23. One file holds the whole spine while it is small enough to
+read end-to-end, commented as a lesson: instance + validation messenger → `Logger`; surface; physical
+device selection (graphics+present+swapchain, prefers discrete); logical device with **dynamic
+rendering** + **synchronization2** (Vulkan 1.3); swapchain (sRGB format, mailbox/FIFO, clamped extent)
+with image views; command pool/buffers; **frames-in-flight** (2) with semaphores + fences;
+clear-to-colour each frame via dynamic rendering; swapchain **recreation on resize/minimise**; reverse-
+order teardown.
+
+**Acceptance — verified by a bounded run (`RP.Spectre --frames 200`, with a scripted mid-run resize):**
+
+- ✅ Window opens; Vulkan 1.3 device + swapchain come up (selected *AMD Radeon Graphics*, 2 images @ 1280×720).
+- ✅ Swapchain clears every frame (hue-cycling colour) on the stable 60 Hz fixed-timestep loop.
+- ✅ Validation layers **ON** and routed to `Logger`; **zero validation errors** from our code (the only
+  warnings are an external OBS overlay layer). 
+- ✅ Scripted resize → 960×540 triggers swapchain recreation with no crash/leak/validation error.
+- ✅ Clean teardown ("Renderer torn down cleanly"), process exits 0.
+- ✅ Math inventory exists (`docs/MATH_INVENTORY.md`); `RP.Math ← RP.Game ← RP.Spectre` compiles clean.
+
+`AllowUnsafeBlocks` enabled for `RP.Game` (Vulkan is a pointer-heavy C API); unsafe code is confined to
+`Graphics/Vulkan`. The SPIR-V offline-compile step is verified working (`glslc`) and is wired into the
+build in Phase 1 when the first shaders arrive.
+
+### (foundation, earlier this phase)
 
 ### What landed this session
 
