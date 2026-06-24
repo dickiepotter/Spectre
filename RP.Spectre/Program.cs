@@ -2,6 +2,7 @@ namespace RP.Spectre
 {
     using System;
     using System.Diagnostics;
+    using RP.Game.Audio;
     using RP.Game.Core;
     using RP.Game.Core.Logging;
     using RP.Game.Graphics.Vulkan;
@@ -63,6 +64,19 @@ namespace RP.Spectre
             var flyCam = new FreeFlyCamera();
             flyCam.AimAt(renderer.Camera.Position, renderer.Camera.Target);
 
+            // Audio bring-up: open OpenAL and play a positional tone off to one side so it pans as you fly.
+            // Guarded — a machine with no audio device must not stop the game.
+            AudioEngine? audio = null;
+            try
+            {
+                audio = new AudioEngine(log);
+                audio.PlayAt(AudioEngine.GenerateSineTone(440f, 2.0f), 44100, new Vector3(12, 0, 0), gain: 1f);
+            }
+            catch (Exception ex)
+            {
+                log.Warning("Audio", $"Audio unavailable, continuing without it: {ex.Message}");
+            }
+
             // 60 Hz simulation, decoupled from however fast the GPU presents.
             var accumulator = new FixedTimestepAccumulator(fixedDeltaSeconds: 1.0 / 60.0);
             var time = new GameTime(accumulator.FixedDeltaSeconds, 0.0, 0);
@@ -92,6 +106,14 @@ namespace RP.Spectre
                     flyCam.Update(renderer.Camera, keyboard, mouse, frameSeconds);
                 }
 
+                // Keep the audio listener on the camera so the positional tone pans as you move.
+                if (audio is not null)
+                {
+                    Vector3d forward = (renderer.Camera.Target - renderer.Camera.Position).NormalizeOrDefault();
+                    audio.SetListener(
+                        (Vector3)renderer.Camera.Position, Vector3.Zero, (Vector3)forward, Vector3.UnitY);
+                }
+
                 // Spin the cube from the simulation clock: a full turn about Y every ~6 s, plus a slower
                 // tumble about X so all faces come into view.
                 double spin = time.TotalSeconds;
@@ -117,6 +139,7 @@ namespace RP.Spectre
             }
 
             renderer.WaitIdle();
+            audio?.Dispose();
             // `using` disposes the renderer (clean Vulkan teardown) before the window is destroyed below.
             renderer.Dispose();
             window.Dispose();
