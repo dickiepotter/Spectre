@@ -5,6 +5,36 @@ A per-phase narrative of *what* was built, *why*, and every *deviation* from the
 
 ---
 
+## Phase 12 — Missions + difficulty  *(objective/mission layer + difficulty dials; acceptance met)*
+
+- **`RP.Spectre.Missions.Difficulty`** (committed at phase start): `DifficultyPreset` (Story/Standard/Hard/
+  Custom) + `DifficultyScalars` (enemy count / damage / accuracy / aggression + incoming-damage, the S22
+  table). The player's advantage is a **constant**; the dials scale only what it doesn't solve.
+- **`RP.Spectre.Missions.Objective`**: `IObjective` (watches the live battle, resolves to Complete/Failed)
+  with `EliminateFactionObjective` (clear a faction) and `KeepAliveObjective` (hold a ship alive for *N* s —
+  covers both "survive the ambush" and "keep the freighter intact"). New mission *types* are new objectives,
+  not new machinery.
+- **`RP.Spectre.Missions.Mission`**: a thin rule-layer over a `BattleSimulation` — a bag of objectives that
+  must **all** complete to win, plus **wards** (ships whose loss fails the mission: the player, optionally an
+  escort). Splitting "must-complete" from "must-not-die" lets one model cover clear-the-field, timed-survival
+  and **escort** (= an eliminate objective with the freighter added as a ward) with no per-type code. A
+  resolved mission stays resolved.
+- **`RP.Spectre.Missions.Encounter`**: the one place `DifficultyScalars.EnemyCount` becomes an actual spawn
+  count (rounded, floored at 1) — so difficulty shapes encounter *scope*, not ship-for-ship stats, and
+  mission authoring stays difficulty-agnostic.
+- *Verified (S22/S20/S12):* Standard is neutral, Story gentler / Hard harsher on every dial, and the
+  **lethality check holds at 2–4 s on Standard** while Hard kills sooner / Story later (a preset can't
+  silently break balance); objectives resolve only on the real condition; a mission **succeeds** when all
+  objectives complete, **fails** on player **or** escort-ward loss (ward loss outranks a simultaneous win),
+  and a finished mission won't flip; encounter scaling tracks difficulty; and a mission **resolves to
+  Succeeded over a real headless lopsided battle** (no hand-killing). 3 difficulty + 8 mission = 11 tests.
+- *Deferred:* mission *scripting/sequence* (briefings, triggers, the campaign graph) and in-world objective
+  markers/HUD build on this `Mission`/`IObjective` core; the full ship roster the encounter scaler spawns is
+  the Phase-7 deferral.
+- Tests: 780 RP.Math + 81 RP.Game + 52 Spectre = **913 total**.
+
+---
+
 ## Phase 8 — Sensors / EW  *(sensor model met; debris drift reuses physics)*
 
 - **`RP.Spectre.Sensors`**: `Signature` (boost/fire/size raise it, going dark drops it to a floor),
