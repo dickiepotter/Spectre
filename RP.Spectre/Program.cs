@@ -49,8 +49,9 @@ namespace RP.Spectre
             // The window owns the truth about its size; tell the renderer to rebuild the swapchain on change.
             window.FramebufferResize += (Vector2D<int> _) => renderer.NotifyResize();
 
-            // Pull the camera back and above the origin to take in the whole instanced cube grid.
-            renderer.Camera.Position = new Vector3d(0, 12, 45);
+            // Sit just outside the grid looking in, so the camera frustum excludes the cubes off to the
+            // sides and behind — frustum culling then visibly draws far fewer than all 4096.
+            renderer.Camera.Position = new Vector3d(0, 4, 17);
             renderer.Camera.Target = Vector3d.Origin;
 
             // 60 Hz simulation, decoupled from however fast the GPU presents.
