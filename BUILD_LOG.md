@@ -5,6 +5,23 @@ A per-phase narrative of *what* was built, *why*, and every *deviation* from the
 
 ---
 
+## Phase 7 — Ships + AI + a real battle  *(headless battle acceptance met)*
+
+- **`RP.Game.Ai.Steering`**: Reynolds behaviours — seek, flee, arrive (eased stop), pursue (leads a moving
+  target), separation (flocking anti-collision) — generic, composable, 6 tests.
+- **`RP.Game.Scene.SimTier` + `SimTierManager`**: Near/Mid/Far LOD by distance with a hysteresis band so
+  entities don't thrash tiers on a boundary (the brief's affordability trick, S5) — 4 tests.
+- **`RP.Spectre.Ships`**: `Combatant` (body + shield + hull + weapon + heat/capacitor + faction) and
+  `BattleSimulation` (nearest-enemy targeting → pursue → fire → route damage; speed-capped fixed-step).
+- *Verified (S20 scenario test):* a **50-ship battle runs 40 s headless with no exceptions, no NaN
+  transforms, and real attrition**, and is **deterministic for a given seed**.
+- *Deferred:* the full ship roster as data (corvette→carrier, Severance Wasp→Hive) and capital broadside/
+  facet AI build on this `Combatant`/`BattleSimulation` core; in-world rendering of the battle reuses the
+  Phase 2 instancing.
+- Tests: 780 RP.Math + 81 RP.Game + 35 Spectre = **896 total**.
+
+---
+
 ## Phase 6 — Combat depth  *(acceptance met)*
 
 - **Weapon families + fire discipline**: `WeaponFamily`, `Capacitor` (shared draw/recharge), `HeatSink`
