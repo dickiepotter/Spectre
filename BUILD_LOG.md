@@ -5,6 +5,22 @@ A per-phase narrative of *what* was built, *why*, and every *deviation* from the
 
 ---
 
+## Phase 5 — Shields + hull + damage routing  *(combat core + lethality check met)*
+
+- **`RP.Spectre.Combat`**: `Shield` (capacity/regen/**regen delay** — the key lever; suppressed under
+  sustained fire), `Hull` (fragile HP pool), `DamageType` (energy/kinetic/missile), and `DamageRouter`
+  (applies per-weapon vs-shield / vs-hull multipliers; energy strips shields, kinetic punches hull,
+  missiles bypass; reports the shield-down event and destruction).
+- *Verified (S18/S20):* shield absorbs while up, regen only after the delay, downed shield exposes hull,
+  missile bypass, shield-down event — and the **lethality check**: an unshielded Spectre dies to pulse
+  fire (18 dmg @ 5/s, vs-hull 0.8) in **~2.5 s**, inside the 2–4 s target; a full shield survives notably
+  longer (7 combat tests).
+- *Sequencing:* in-world weapon firing (projectiles) and destruction → debris need the entity/projectile
+  model; they continue in Phase 6/7. The combat *rules* are complete and tuned.
+- Tests: 780 RP.Math + 71 RP.Game + 17 Spectre = **868 total**.
+
+---
+
 ## Phase 4 — Collision + crash damage  *(physics + damage curve done; in-world wiring folds into Phase 5)*
 
 - **`RP.Game.Physics.CollisionResolver`**: reduced mass, sphere-overlap detection (contact normal +
