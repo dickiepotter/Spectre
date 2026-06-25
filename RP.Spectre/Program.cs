@@ -129,6 +129,7 @@ namespace RP.Spectre
             bool previousQuicksaveKey = false;
             bool previousTargetKey = false;
             Combatant? lockedTarget = null;
+            bool playerFiring = false;
 
             IInputContext input = window.CreateInput();
             IKeyboard? keyboard = input.Keyboards.Count > 0 ? input.Keyboards[0] : null;
@@ -223,6 +224,7 @@ namespace RP.Spectre
                     playerHeat.Update(dt);
                     playerGun.Update(dt);
                     bool firing = !interactive || (mouse?.IsButtonPressed(MouseButton.Left) ?? false);
+                    playerFiring = firing;
                     if (firing && playerGun.TryFire(playerCapacitor, playerHeat))
                     {
                         projectiles.Fire(ship.Position + ship.Forward * 6, ship.Forward, playerGun, Faction.Coalition);
@@ -281,7 +283,9 @@ namespace RP.Spectre
 
                 float aspect = renderer.Camera.AspectRatio <= 0 ? 16f / 9f : (float)renderer.Camera.AspectRatio;
                 BuildHud(renderer.Camera.ViewProjection, floatingOrigin.Origin, ship, playerHeat, battle,
-                    lockedTarget, playerGun.ProjectileSpeed, hangarMouth, aspect, hudLines);
+                    lockedTarget, playerGun.ProjectileSpeed, hangarMouth,
+                    shipController.IsThrusting, playerFiring, shipController.Boosting, shipController.FlightAssist,
+                    aspect, hudLines);
                 renderer.SetHudLines(CollectionsMarshal.AsSpan(hudLines));
 
                 renderer.DrawFrame(accumulator.Alpha);
@@ -525,6 +529,7 @@ namespace RP.Spectre
         private static void BuildHud(
             Matrix viewProj, Vector3d renderOrigin, RigidBody ship, Combat.HeatSink playerHeat,
             BattleSimulation battle, Combatant? target, double projectileSpeed, Vector3d navPoint,
+            bool thrusting, bool firing, bool boosting, bool assist,
             float aspect, List<HudVertex> lines)
         {
             lines.Clear();
@@ -537,6 +542,10 @@ namespace RP.Spectre
                 lines.Add(new HudVertex(a, c));
                 lines.Add(new HudVertex(b, c));
             }
+
+            // Text via the 16-segment console font, drawn through the same line overlay.
+            void Text(string s, Vector2 origin, float h, Vector3 col)
+                => GlyphFont.Draw(s, origin, h, ax, (a, b) => Line(a, b, col));
 
             void Diamond(Vector2 c, float r, Vector3 col)
             {
@@ -646,12 +655,54 @@ namespace RP.Spectre
                 DrawOffScreenArrow(Line, navPoint - ship.Position, ship, viewProj, renderOrigin, ax, NavCol);
             }
 
-            // Bottom-left gauges: speed and weapon heat.
+            // NOTE: the HUD overlay is +Y-down (Vulkan clip space): y = -1 is the top of the screen, y = +1 the
+            // bottom. So console elements live at positive y, and text (drawn upright from its baseline) too.
+
+            // --- Cockpit console framing: dim L-brackets at the four corners so the view reads as a canopy. ---
+            var frame = new Vector3(0.10f, 0.45f, 0.62f);
+            void Corner(float cx, float cy)
+            {
+                float dx = (cx < 0 ? 0.12f : -0.12f) * ax, dy = cy < 0 ? 0.10f : -0.10f;
+                Line(new Vector2(cx, cy), new Vector2(cx + dx, cy), frame);
+                Line(new Vector2(cx, cy), new Vector2(cx, cy + dy), frame);
+            }
+            Corner(-0.985f, -0.97f); Corner(0.985f, -0.97f);
+            Corner(-0.985f, 0.97f); Corner(0.985f, 0.97f);
+
+            // --- Bottom-left flight console: numeric speed, throttle/heat bars, mode + input lights. ---
+            var con = new Vector3(0.25f, 0.85f, 1.05f);   // console cyan
+            var warn = new Vector3(1.3f, 0.35f, 0.2f);    // hot/alert
+            float panelX = -0.93f;
+
+            Text($"SPD {(int)Math.Round(speed)} M/S", new Vector2(panelX, 0.80f), 0.045f, con);
+
             float speedFrac = (float)Math.Min(speed / 300.0, 1.0);
-            Line(new Vector2(-0.9f, -0.84f), new Vector2(-0.9f + 0.28f * speedFrac, -0.84f), hud);
+            Line(new Vector2(panelX, 0.835f), new Vector2(panelX + 0.30f, 0.835f), frame); // track
+            Line(new Vector2(panelX, 0.835f), new Vector2(panelX + 0.30f * speedFrac, 0.835f), con);
+
             float heatFrac = (float)playerHeat.Fraction;
-            var heatCol = heatFrac > 0.8f ? new Vector3(1.3f, 0.3f, 0.2f) : new Vector3(1.0f, 0.7f, 0.2f);
-            Line(new Vector2(-0.9f, -0.89f), new Vector2(-0.9f + 0.28f * heatFrac, -0.89f), heatCol);
+            Text("HEAT", new Vector2(panelX, 0.885f), 0.035f, heatFrac > 0.8f ? warn : con);
+            Line(new Vector2(panelX + 0.16f, 0.873f), new Vector2(panelX + 0.30f, 0.873f), frame);
+            Line(new Vector2(panelX + 0.16f, 0.873f), new Vector2(panelX + 0.16f + 0.14f * heatFrac, 0.873f),
+                heatFrac > 0.8f ? warn : new Vector3(1.0f, 0.7f, 0.2f));
+
+            // Flight mode + boost.
+            Text(assist ? "ASSIST" : "MANUAL", new Vector2(panelX, 0.94f), 0.035f, assist ? con : warn);
+            if (boosting) Text("BOOST", new Vector2(panelX + 0.22f, 0.94f), 0.035f, new Vector3(1.1f, 0.9f, 0.3f));
+
+            // Lit input indicators (bright when active, dim when idle), bottom-centre.
+            void Light(string label, Vector2 at, bool on, Vector3 onCol)
+            {
+                Vector3 c = on ? onCol : frame;
+                float w = 0.018f * ax, hh = 0.022f;
+                Line(new Vector2(at.X - w, at.Y - hh), new Vector2(at.X + w, at.Y - hh), c);
+                Line(new Vector2(at.X + w, at.Y - hh), new Vector2(at.X + w, at.Y + hh), c);
+                Line(new Vector2(at.X + w, at.Y + hh), new Vector2(at.X - w, at.Y + hh), c);
+                Line(new Vector2(at.X - w, at.Y + hh), new Vector2(at.X - w, at.Y - hh), c);
+                Text(label, new Vector2(at.X + w + 0.012f, at.Y + 0.016f), 0.032f, c);
+            }
+            Light("THR", new Vector2(-0.18f, 0.92f), thrusting, new Vector3(0.4f, 1.1f, 0.5f));
+            Light("FIRE", new Vector2(0.0f, 0.92f), firing, warn);
         }
 
         // Points a chevron from screen centre toward an off-screen/behind target, using the camera basis to

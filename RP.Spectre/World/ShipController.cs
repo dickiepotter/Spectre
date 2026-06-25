@@ -61,6 +61,12 @@ namespace RP.Spectre.World
         /// the cursor; the host applies the actual OS cursor lock from this flag.</summary>
         public bool MouseCaptured { get; set; } = true;
 
+        /// <summary>True while the pilot is commanding any thruster this frame (for HUD input feedback).</summary>
+        public bool IsThrusting => !_thrustLocal.IsZero();
+
+        /// <summary>True while boost is held this frame.</summary>
+        public bool Boosting { get; private set; }
+
         private Vector3d _thrustLocal;     // intent for the current frame, in the ship's frame
         private Vector3d _targetBodyRate;  // desired pitch/yaw/roll rate (rad/s) in the ship's frame
         private System.Numerics.Vector2 _lastMouse;
@@ -84,6 +90,7 @@ namespace RP.Spectre.World
         public void ReadControls(IKeyboard keyboard, IMouse mouse)
         {
             bool boost = keyboard.IsKeyPressed(Key.ShiftLeft);
+            Boosting = boost;
             double fwd = (boost ? BoostMultiplier : 1.0) * ForwardThrust;
 
             // Local frame: forward is -Z, right +X, up +Y.
