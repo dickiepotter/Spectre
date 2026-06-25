@@ -90,6 +90,20 @@ namespace RP.Spectre
             renderer.ModelTransform = Matrix.Identity;        // hulls don't spin; the battle moves them
             bool interactive = maxFrames <= 0;
 
+            // The Coalition flagship: a vast carrier between the player and the battle, its open hangar bay
+            // turned to face the player's start so there is somewhere monumental to fly toward — and into.
+            const double carrierScale = 340.0; // ~1 km hull
+            var carrierPos = new Vector3d(1600, 250, 2600);
+            Vector3d carrierBow = (ship.Position - carrierPos).NormalizeOrDefault();
+            Quaternion carrierRot = Quaternion.LookRotation(carrierBow, CarrierAxes);
+            // The hangar mouth sits a hull-and-a-half forward of the centre along the bow.
+            Vector3d hangarMouth = carrierPos + carrierBow * (1.5 * carrierScale);
+            renderer.SetCapitals(
+                stackalloc Vector3d[] { carrierPos },
+                stackalloc Vector3[] { new Vector3(0.95f, 1.0f, 1.08f) },
+                stackalloc float[] { (float)carrierScale },
+                stackalloc Vector4[] { new Vector4((float)carrierRot.X, (float)carrierRot.Y, (float)carrierRot.Z, (float)carrierRot.W) });
+
             int worldSeed = 1;
             if (interactive && SaveSystem.TryLoad(out SpectreSaveData? existingSave) && existingSave is not null)
             {
@@ -224,7 +238,7 @@ namespace RP.Spectre
 
                 float aspect = renderer.Camera.AspectRatio <= 0 ? 16f / 9f : (float)renderer.Camera.AspectRatio;
                 BuildHud(renderer.Camera.ViewProjection, floatingOrigin.Origin, ship, playerHeat, battle,
-                    lockedTarget, playerGun.ProjectileSpeed, aspect, hudLines);
+                    lockedTarget, playerGun.ProjectileSpeed, hangarMouth, aspect, hudLines);
                 renderer.SetHudLines(CollectionsMarshal.AsSpan(hudLines));
 
                 renderer.DrawFrame(accumulator.Alpha);
@@ -262,6 +276,10 @@ namespace RP.Spectre
         }
 
         private const int VulkanInstanceBudget = 4096;
+
+        // The capital hull mesh's frame (forward -Z, up +Y), used to aim the carrier's bow.
+        private static readonly OrthogonalAxes CarrierAxes =
+            new OrthogonalAxes(AxisAlignment.RIGHT, AxisAlignment.UP, AxisAlignment.NEAR);
 
         // Faction tints for the instanced hulls.
         private static readonly Vector3 CoalitionColor = new(0.30f, 0.55f, 1.00f); // cool blue
@@ -403,9 +421,12 @@ namespace RP.Spectre
         // projected to screen space. Lines only (no font yet); colours kept bright so they read over bloom.
         // Friend/foe is colour-coded — green for Coalition, red for Severance — across IFF pips and the
         // locked-target reticule, which can sit on a friendly or a hostile. ---
+        private static readonly Vector3 NavCol = new(0.30f, 1.05f, 1.25f); // cyan objective marker
+
         private static void BuildHud(
             Matrix viewProj, Vector3d renderOrigin, RigidBody ship, Combat.HeatSink playerHeat,
-            BattleSimulation battle, Combatant? target, double projectileSpeed, float aspect, List<HudVertex> lines)
+            BattleSimulation battle, Combatant? target, double projectileSpeed, Vector3d navPoint,
+            float aspect, List<HudVertex> lines)
         {
             lines.Clear();
             var hud = new Vector3(0.25f, 0.9f, 1.1f);
@@ -506,6 +527,24 @@ namespace RP.Spectre
                         Line(new Vector2(a.X, a.Y - 0.02f), new Vector2(a.X, a.Y + 0.02f), tcol);
                     }
                 }
+            }
+
+            // Objective marker: the carrier's hangar mouth, in cyan, so there is always a "fly here / dock"
+            // cue. A box reticule when in view (tightening as you near it), an edge chevron when it is not.
+            double navDist = (navPoint - ship.Position).Magnitude;
+            if (Project(navPoint, out Vector2 nav) && Math.Abs(nav.X) <= 1.2f && Math.Abs(nav.Y) <= 1.2f)
+            {
+                float r = (float)Math.Clamp(6000.0 / Math.Max(navDist, 1.0), 0.03, 0.14);
+                float rx = r * ax;
+                Line(new Vector2(nav.X - rx, nav.Y - r), new Vector2(nav.X + rx, nav.Y - r), NavCol);
+                Line(new Vector2(nav.X + rx, nav.Y - r), new Vector2(nav.X + rx, nav.Y + r), NavCol);
+                Line(new Vector2(nav.X + rx, nav.Y + r), new Vector2(nav.X - rx, nav.Y + r), NavCol);
+                Line(new Vector2(nav.X - rx, nav.Y + r), new Vector2(nav.X - rx, nav.Y - r), NavCol);
+                Diamond(nav, 0.01f, NavCol);
+            }
+            else
+            {
+                DrawOffScreenArrow(Line, navPoint - ship.Position, ship, viewProj, renderOrigin, ax, NavCol);
             }
 
             // Bottom-left gauges: speed and weapon heat.
