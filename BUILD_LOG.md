@@ -5,6 +5,27 @@ A per-phase narrative of *what* was built, *why*, and every *deviation* from the
 
 ---
 
+## Phase 16 — Menus + navigation  *(the 3.5 menu-UI deferral; model + game tree met, draw deferred)*
+
+- **`RP.Game.Mechanics.Menu` / `MenuItem` / `MenuController`** (engine): a generic menu model — a moving
+  selection that **wraps and skips disabled rows** (so the cursor never lands where it can't act), and a
+  controller holding a **stack** of menus so a submenu pushes and `Back` pops (the universal Settings → … →
+  back flow), with `Activate` running an action or descending, and `Reset` collapsing to the root. Pure model:
+  the UI maps keys onto `MoveUp`/`MoveDown`/`Activate`/`Back` and draws `Items` with `SelectedIndex`. 7 tests.
+- **`RP.Spectre.Shell.SpectreMenus`** (game): the actual trees built on that model and wired to the
+  `AppStateMachine` — **Main** (New Game / Continue / Settings / Quit, with *Continue* disabled when there is
+  no save), **Pause** (Resume / Settings / Abandon), and a **Settings** submenu that toggles/cycles the live
+  `SpectreSettings`. Rows drive **legal** state transitions (the machine rejects illegal ones). 6 tests.
+- *Verified:* navigation wraps and skips disabled rows; submenus push/pop; New Game → Playing (and runs its
+  hook); Quit → Exiting; Resume (from Paused) → Playing; cycling difficulty edits the live settings;
+  Continue's enabled state tracks the presence of a save.
+- *Deferred:* the on-screen **draw** (text + layout via the Vulkan text path) renders this model — together
+  with the HUD snapshot, the whole UI's *logic* is now complete and tested; only the text-rendering layer
+  remains as the human-verified GPU piece.
+- Tests: 780 RP.Math + 100 RP.Game + 79 Spectre = **959 total**.
+
+---
+
 ## Phase 15 — The HUD model  *(the S3 prograde-marker deferral; computed core met, text/draw deferred)*
 
 - **`RP.Spectre.Hud.HudModel`** + `HudSnapshot` / `TargetReadout` / `TargetContact`: one frame's flight +
