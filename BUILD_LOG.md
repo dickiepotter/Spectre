@@ -5,6 +5,29 @@ A per-phase narrative of *what* was built, *why*, and every *deviation* from the
 
 ---
 
+## Phase 18 — In-world projectiles + debris (pooled)  *(the Phase 4/5/6/8 deferral; acceptance met)*
+
+- **`RP.Game.Scene.ObjectPool<T>`** (engine): a reuse pool for short-lived objects so a firefight never
+  churns the GC (S2/S5). `Get`/`Return` with an optional reset hook; `CreatedCount` (never falls) is how the
+  tests prove reuse — churning many objects allocates only the peak-live count. 4 tests.
+- **`RP.Spectre.World.ProjectileSystem`** + `Projectile`: finite-speed ballistic rounds that travel, can be
+  led/dodged, and apply `DamageRouter` damage on impact — the entity layer the combat *rules* were always
+  meant to drive. Rounds are **pooled**, hit-tests are **swept** over each step (a fast shell can't tunnel
+  through a thin target between frames), and a round never hits its own side. Hitscan weapons are rejected
+  (the battle applies their damage instantly). 7 tests.
+- **`RP.Spectre.World.DebrisField`**: a kill bursts pooled `RigidBody` chunks with **zero-mean scatter** over
+  the parent's velocity and masses summing to the parent's, so the cloud's **total momentum exactly equals
+  the ship's** at the instant it died; then they drift forever (no drag). 4 tests.
+- *Verified:* rounds launch at weapon speed/aim, hit the right faction, deal damage and expire; a fast round
+  still hits (swept); misses expire at range; rounds recycle from the pool; debris conserves momentum through
+  spawn and stepping, splits the mass, and returns to the pool on clear.
+- *Deferred:* wiring projectiles into `BattleSimulation` (it resolves hitscan inline today) and spawning a
+  `DebrisField` on the destruction event, plus the GPU **instanced draw** of rounds/debris — the entity
+  *behaviour* is complete and tested.
+- Tests: 780 RP.Math + 104 RP.Game + 96 Spectre = **980 total**.
+
+---
+
 ## Phase 17 — Adaptive audio: the dread director  *(S15.4 tension/cue model met; mixer playback deferred)*
 
 - **`RP.Spectre.Audio.TensionDirector`** (+ `ThreatContext`, `AudioCue`): turns the tactical situation
