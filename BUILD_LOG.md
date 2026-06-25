@@ -5,6 +5,24 @@ A per-phase narrative of *what* was built, *why*, and every *deviation* from the
 
 ---
 
+## Phase 15 — The HUD model  *(the S3 prograde-marker deferral; computed core met, text/draw deferred)*
+
+- **`RP.Spectre.Hud.HudModel`** + `HudSnapshot` / `TargetReadout` / `TargetContact`: one frame's flight +
+  combat HUD as a **pure computed snapshot** — speed and the **prograde marker** (unit velocity, zero at
+  rest), the boresight (gun line), and shield/hull/heat/capacitor gauges + weapon-ready/overheat flags. With
+  a selected `TargetContact` it also gives **range, closing speed** (range rate; positive = closing), the
+  target's condition, and the **lead pip** via `InterceptSolver` (target motion taken *relative to the
+  player* so the ship's own velocity is accounted for). `TargetContact` is decoupled from `Combatant` so the
+  HUD can mark any contact (ship, debris, waypoint).
+- *Verified:* prograde tracks velocity and vanishes at rest; gauges mirror the systems; with a target, range/
+  closing-speed/condition are right (closing flips sign when you run); a hitscan weapon aims straight while a
+  ballistic weapon **leads a crossing target** ahead of its current position. 6 tests.
+- *Deferred:* the actual on-screen **text/UI draw** (needs the Vulkan text path) consumes this snapshot — the
+  HUD's *what to show* is complete and tested; only the *drawing* remains, with the menus (next).
+- Tests: 780 RP.Math + 93 RP.Game + 73 Spectre = **946 total**.
+
+---
+
 ## Phase 14 — Ship roster as data + capital broadsides  *(the Phase-7 deferral; acceptance met)*
 
 - **`RP.Spectre.Ships.ShipClass`** + **`ShipCatalog`**: the roster as data (S18) — the Coalition line
