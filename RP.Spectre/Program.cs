@@ -549,9 +549,25 @@ namespace RP.Spectre
 
                 using var sr = new System.IO.StreamReader(stream);
                 string objText = sr.ReadToEnd();
-                Primitives.Mesh mesh = ObjLoader.Load(objText, HullBaseColor);
+
+                // Pre-decoded RGBA texture (int32 w, int32 h, then w*h*4 bytes) — baked into per-vertex
+                // luminance so the hull reads as painted panelwork rather than flat grey.
+                byte[]? rgba = null; int texW = 0, texH = 0;
+                using (System.IO.Stream? texStream = asm.GetManifestResourceStream("Imperial.rgba"))
+                {
+                    if (texStream is not null)
+                    {
+                        using var br = new System.IO.BinaryReader(texStream);
+                        texW = br.ReadInt32();
+                        texH = br.ReadInt32();
+                        rgba = br.ReadBytes(texW * texH * 4);
+                    }
+                }
+
+                Primitives.Mesh mesh = ObjLoader.Load(objText, HullBaseColor, rgba, texW, texH);
                 renderer.SetShipModel(mesh.Vertices, mesh.Indices);
-                log.Info("Model", $"Loaded ship hull from Imperial.obj ({mesh.Vertices.Length} verts).");
+                log.Info("Model", $"Loaded ship hull from Imperial.obj ({mesh.Vertices.Length} verts," +
+                                  (rgba is not null ? $" {texW}x{texH} texture baked)." : " untextured)."));
             }
             catch (Exception ex)
             {

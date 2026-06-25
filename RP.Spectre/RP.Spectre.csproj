@@ -29,6 +29,11 @@
     <EmbeddedResource Include="Assets\Imperial.obj">
       <LogicalName>Imperial.obj</LogicalName>
     </EmbeddedResource>
+    <!-- The ship texture, pre-decoded to raw RGBA (int32 width, int32 height, then w*h*4 bytes) so the game
+         needs no PNG decoder at runtime. ObjLoader bakes its detail into per-vertex luminance. -->
+    <EmbeddedResource Include="Assets\Imperial.rgba">
+      <LogicalName>Imperial.rgba</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
 </Project>
