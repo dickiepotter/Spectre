@@ -10,6 +10,7 @@ namespace RP.Spectre
     using RP.Game.Graphics.Vulkan;
     using RP.Game.Physics;
     using RP.Game.Platform;
+    using RP.Game.Rendering;
     using RP.Game.Scene;
     using RP.Math;
     using RP.Spectre.Combat;
@@ -75,6 +76,7 @@ namespace RP.Spectre
             var positions = new List<Vector3d>(VulkanInstanceBudget);
             var colors = new List<Vector3>(VulkanInstanceBudget);
             var scales = new List<float>(VulkanInstanceBudget);
+            var hudLines = new List<HudVertex>(512);
 
             SpectreSettings settings = SaveSystem.LoadSettings();
             shipController.FlightAssist = settings.FlightAssistDefault;
@@ -187,6 +189,10 @@ namespace RP.Spectre
                     CollectionsMarshal.AsSpan(positions),
                     CollectionsMarshal.AsSpan(colors),
                     CollectionsMarshal.AsSpan(scales));
+
+                float aspect = renderer.Camera.AspectRatio <= 0 ? 16f / 9f : (float)renderer.Camera.AspectRatio;
+                BuildHud(renderer.Camera.ViewProjection, floatingOrigin.Origin, ship, playerHeat, battle, aspect, hudLines);
+                renderer.SetHudLines(CollectionsMarshal.AsSpan(hudLines));
 
                 renderer.DrawFrame(accumulator.Alpha);
                 renderedFrames++;
@@ -341,6 +347,100 @@ namespace RP.Spectre
                 colors.Add(DebrisColor);
                 scales.Add(6f);
             }
+        }
+
+        // --- HUD (build brief S14): a peripheral, geometric overlay built from the player + target state and
+        // projected to screen space. Lines only (no font yet); colours kept bright so they read over bloom. ---
+        private static void BuildHud(
+            Matrix viewProj, Vector3d renderOrigin, RigidBody ship, Combat.HeatSink playerHeat,
+            BattleSimulation battle, float aspect, List<HudVertex> lines)
+        {
+            lines.Clear();
+            var hud = new Vector3(0.25f, 0.9f, 1.1f);
+            var prograde = new Vector3(0.4f, 1.1f, 0.55f);
+            var targetCol = new Vector3(1.2f, 0.45f, 0.35f);
+            float ax = aspect <= 0 ? 1f : 1f / aspect; // scale x so shapes stay square
+
+            void Line(Vector2 a, Vector2 b, Vector3 c)
+            {
+                lines.Add(new HudVertex(a, c));
+                lines.Add(new HudVertex(b, c));
+            }
+
+            bool Project(Vector3d world, out Vector2 ndc)
+            {
+                Vector3d r = world - renderOrigin;
+                double x = r.X, y = r.Y, z = r.Z;
+                double w = viewProj[3, 0] * x + viewProj[3, 1] * y + viewProj[3, 2] * z + viewProj[3, 3];
+                if (w <= 1e-4)
+                {
+                    ndc = default;
+                    return false;
+                }
+                double cx = viewProj[0, 0] * x + viewProj[0, 1] * y + viewProj[0, 2] * z + viewProj[0, 3];
+                double cy = viewProj[1, 0] * x + viewProj[1, 1] * y + viewProj[1, 2] * z + viewProj[1, 3];
+                ndc = new Vector2((float)(cx / w), (float)(cy / w));
+                return true;
+            }
+
+            // Boresight: a gapped cross at screen centre.
+            Line(new Vector2(-0.06f * ax, 0), new Vector2(-0.02f * ax, 0), hud);
+            Line(new Vector2(0.02f * ax, 0), new Vector2(0.06f * ax, 0), hud);
+            Line(new Vector2(0, -0.06f), new Vector2(0, -0.02f), hud);
+            Line(new Vector2(0, 0.06f), new Vector2(0, 0.02f), hud);
+
+            // Prograde marker: a small diamond where the velocity vector points.
+            double speed = ship.Velocity.Magnitude;
+            if (speed > 1.0 && Project(ship.Position + ship.Velocity / speed * 3000.0, out Vector2 pg))
+            {
+                float r = 0.022f;
+                var up = pg + new Vector2(0, r);
+                var dn = pg + new Vector2(0, -r);
+                var rt = pg + new Vector2(r * ax, 0);
+                var lf = pg + new Vector2(-r * ax, 0);
+                Line(up, rt, prograde); Line(rt, dn, prograde); Line(dn, lf, prograde); Line(lf, up, prograde);
+            }
+
+            // Nearest hostile: corner brackets + a hull bar.
+            Combatant? target = NearestHostile(battle, ship.Position);
+            if (target is not null && Project(target.Body.Position, out Vector2 t))
+            {
+                float s = 0.05f, e = 0.025f; // bracket half-size and arm length
+                float sx = s * ax, ex = e * ax;
+                // Four corners, each an L.
+                Line(new Vector2(t.X - sx, t.Y + s), new Vector2(t.X - sx + ex, t.Y + s), targetCol);
+                Line(new Vector2(t.X - sx, t.Y + s), new Vector2(t.X - sx, t.Y + s - e), targetCol);
+                Line(new Vector2(t.X + sx, t.Y + s), new Vector2(t.X + sx - ex, t.Y + s), targetCol);
+                Line(new Vector2(t.X + sx, t.Y + s), new Vector2(t.X + sx, t.Y + s - e), targetCol);
+                Line(new Vector2(t.X - sx, t.Y - s), new Vector2(t.X - sx + ex, t.Y - s), targetCol);
+                Line(new Vector2(t.X - sx, t.Y - s), new Vector2(t.X - sx, t.Y - s + e), targetCol);
+                Line(new Vector2(t.X + sx, t.Y - s), new Vector2(t.X + sx - ex, t.Y - s), targetCol);
+                Line(new Vector2(t.X + sx, t.Y - s), new Vector2(t.X + sx, t.Y - s + e), targetCol);
+
+                float hull = (float)(target.Hull.Hp / target.Hull.MaxHp);
+                float barY = t.Y - s - 0.02f;
+                Line(new Vector2(t.X - sx, barY), new Vector2(t.X - sx + 2 * sx * hull, barY), targetCol);
+            }
+
+            // Bottom-left gauges: speed and weapon heat.
+            float speedFrac = (float)Math.Min(speed / 300.0, 1.0);
+            Line(new Vector2(-0.9f, -0.84f), new Vector2(-0.9f + 0.28f * speedFrac, -0.84f), hud);
+            float heatFrac = (float)playerHeat.Fraction;
+            var heatCol = heatFrac > 0.8f ? new Vector3(1.3f, 0.3f, 0.2f) : new Vector3(1.0f, 0.7f, 0.2f);
+            Line(new Vector2(-0.9f, -0.89f), new Vector2(-0.9f + 0.28f * heatFrac, -0.89f), heatCol);
+        }
+
+        private static Combatant? NearestHostile(BattleSimulation battle, Vector3d from)
+        {
+            Combatant? best = null;
+            double bestSq = double.PositiveInfinity;
+            foreach (Combatant c in battle.Combatants)
+            {
+                if (!c.Alive || c.Faction != Faction.Severance) continue;
+                double d = (c.Body.Position - from).MagnitudeSquared;
+                if (d < bestSq) { bestSq = d; best = c; }
+            }
+            return best;
         }
 
         private static int ParseMaxFrames(string[] args)

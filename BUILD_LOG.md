@@ -5,6 +5,25 @@ A per-phase narrative of *what* was built, *why*, and every *deviation* from the
 
 ---
 
+## Phase 27 — Diegetic HUD overlay (geometric, no font yet)
+
+- **2D HUD line pass** (`VulkanRenderer.Hud.cs` + `hud.vert`/`hud.frag` + `HudVertex`): a coloured line-list
+  pipeline (alpha-additive, no depth) with per-frame host-visible vertex buffers, drawn **in the same
+  swapchain rendering as the composite** (so it sits over the bloomed image). New public
+  `SetHudLines(span)` — the renderer's second game-facing feed alongside `SetInstances`.
+- **The HUD itself** (`Program.cs` `BuildHud`): built from the player + nearest-hostile state and **projected
+  to NDC** on the CPU (homogeneous `viewProj` multiply, rebased through the floating origin) — a centre
+  **boresight**, a **prograde** diamond on the velocity vector, **target corner-brackets + a hull bar** on the
+  nearest enemy, and bottom-left **speed and weapon-heat** gauges. Peripheral and bright so it reads over the
+  scene without dominating it.
+- *Honest scope:* this is the *geometric* HUD; **numeric text** (speed/range readouts) needs a font-atlas +
+  textured-quad pass, which can't be verified without eyes on the screen — deferred until then. The
+  `HudModel` already computes the numbers.
+- *Verified (bounded run):* the HUD draws over the composited/bloomed/MSAA scene with **no validation errors**
+  (exit 0); 211 tests green.
+
+---
+
 ## Phase 26 — MSAA (clean edges)
 
 - **4× multisample anti-aliasing** on the scene pass: the sky + hulls render into a multisampled HDR colour
