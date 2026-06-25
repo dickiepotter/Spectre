@@ -60,6 +60,7 @@ namespace RP.Spectre
             // Two fleets drawn up from the roster, fought headless by the battle sim.
             var battle = BuildBattle(seed: 20260625);
             var debris = new DebrisField(prewarm: 256);
+            var particles = new ParticleSystem(prewarm: 1024);
             var wasAlive = new bool[battle.Combatants.Count];
             for (int i = 0; i < wasAlive.Length; i++) wasAlive[i] = battle.Combatants[i].Alive;
 
@@ -160,7 +161,8 @@ namespace RP.Spectre
                     projectiles.Step(dt, battle.Combatants); // player shots damage the Severance hulls
 
                     debris.Step(dt);
-                    SpawnDebrisForNewKills(battle, debris, wasAlive);
+                    particles.Step(dt);
+                    HandleNewKills(battle, debris, particles, wasAlive);
                 }
 
                 // Floating origin follows the player so render coordinates stay small and precise.
@@ -180,7 +182,7 @@ namespace RP.Spectre
                     audio.SetListener((Vector3)renderer.Camera.Position, Vector3.Zero, (Vector3)forward, Vector3.UnitY);
                 }
 
-                BuildInstances(battle, debris, projectiles, positions, colors, scales);
+                BuildInstances(battle, debris, projectiles, particles, positions, colors, scales);
                 renderer.SetInstances(
                     CollectionsMarshal.AsSpan(positions),
                     CollectionsMarshal.AsSpan(colors),
@@ -251,13 +253,19 @@ namespace RP.Spectre
                         new Vector3d(centreX, (i - 0.5) * 400, (i - 0.5) * 600)));
             }
 
-            // Two fleets a few kilometres apart, closing across the void.
-            Wing(Faction.Coalition, -2600);
-            Wing(Faction.Severance, 2600);
-            return new BattleSimulation(ships) { WeaponRange = 2200 };
+            // Two fleets within weapon reach so the brawl starts at once, on fantastical drives.
+            Wing(Faction.Coalition, -1300);
+            Wing(Faction.Severance, 1300);
+            return new BattleSimulation(ships)
+            {
+                WeaponRange = 2200,
+                MaxSpeed = 360,        // brisk dogfighting pace (the player's own drive is the fast one)
+                MaxThrust = 1_500_000,
+            };
         }
 
-        private static void SpawnDebrisForNewKills(BattleSimulation battle, DebrisField debris, bool[] wasAlive)
+        // A ship's death: scatter debris and flash an explosion (hot white-orange cooling to red embers).
+        private static void HandleNewKills(BattleSimulation battle, DebrisField debris, ParticleSystem particles, bool[] wasAlive)
         {
             IReadOnlyList<Combatant> ships = battle.Combatants;
             for (int i = 0; i < ships.Count; i++)
@@ -265,18 +273,27 @@ namespace RP.Spectre
                 if (wasAlive[i] && !ships[i].Alive)
                 {
                     Combatant dead = ships[i];
-                    int chunks = Math.Clamp((int)(dead.Radius), 6, 40);
+                    int chunks = Math.Clamp((int)dead.Radius, 6, 40);
                     debris.Spawn(dead.Body.Position, dead.Body.Velocity, dead.Body.Mass, chunks,
-                        scatterSpeed: 12 + dead.Radius * 0.5, rng: SharedDebrisRng);
+                        scatterSpeed: 12 + dead.Radius * 0.5, rng: SharedFxRng);
+
+                    int sparks = Math.Clamp((int)(dead.Radius * 3), 24, 220);
+                    particles.Burst(dead.Body.Position, dead.Body.Velocity * 0.4, sparks,
+                        speed: 40 + dead.Radius * 1.5, life: 1.4f, size: (float)(dead.Radius * 0.7),
+                        hot: new Vector3(6f, 3.2f, 1.2f), cool: new Vector3(1.6f, 0.25f, 0.05f), rng: SharedFxRng);
+
                     wasAlive[i] = false;
                 }
             }
         }
 
-        private static readonly Random SharedDebrisRng = new(1);
+        private static readonly Random SharedFxRng = new(1);
+
+        // Bright engine-glow tint (>1 so the HDR bloom makes it flare behind each ship).
+        private static readonly Vector3 EngineGlow = new(1.4f, 2.0f, 3.2f);
 
         private static void BuildInstances(
-            BattleSimulation battle, DebrisField debris, ProjectileSystem projectiles,
+            BattleSimulation battle, DebrisField debris, ProjectileSystem projectiles, ParticleSystem particles,
             List<Vector3d> positions, List<Vector3> colors, List<float> scales)
         {
             positions.Clear();
@@ -289,6 +306,16 @@ namespace RP.Spectre
                 positions.Add(c.Body.Position);
                 colors.Add(c.Faction == Faction.Coalition ? CoalitionColor : SeveranceColor);
                 scales.Add((float)(c.Radius * 2.0)); // unit hull -> ship-diameter hull
+
+                // A glowing engine bloom trailing the direction of travel.
+                double speed = c.Body.Velocity.Magnitude;
+                if (speed > 1.0 && positions.Count < VulkanInstanceBudget)
+                {
+                    Vector3d back = c.Body.Velocity / speed;
+                    positions.Add(c.Body.Position - back * (c.Radius * 1.3));
+                    colors.Add(EngineGlow);
+                    scales.Add((float)(c.Radius * 0.9));
+                }
             }
 
             foreach (Projectile p in projectiles.Active)
@@ -297,6 +324,14 @@ namespace RP.Spectre
                 positions.Add(p.Position);
                 colors.Add(TracerColor);
                 scales.Add(10f);
+            }
+
+            foreach (Particle p in particles.Active)
+            {
+                if (positions.Count >= VulkanInstanceBudget) break;
+                positions.Add(p.Position);
+                colors.Add(ParticleSystem.ColorOf(p));
+                scales.Add(ParticleSystem.SizeOf(p));
             }
 
             foreach (RigidBody chunk in debris.Active)

@@ -5,6 +5,24 @@ A per-phase narrative of *what* was built, *why*, and every *deviation* from the
 
 ---
 
+## Phase 25 — Particles: explosions + engine glow (bloom pays off)
+
+- **`RP.Spectre.World.ParticleSystem`**: pooled burst particles with a hot→cool colour ramp and a shrink-to-
+  death size, advanced Newtonian with a touch of drag. Colours are kept **> 1** on purpose so the Phase-24
+  HDR bloom turns them into glowing flashes. 3 tests (burst count, age/cull, colour/size ramp).
+- **Explosions on every kill** (`Program.cs`): a ship's death now bursts 24–220 sparks (scaled by hull size)
+  in hot white-orange cooling to red embers, alongside the existing debris — a real flash, not a grey puff.
+- **Engine glow**: each living ship trails a bright blue-white emissive instance along its velocity, so a
+  fleet under way is a constellation of blooming drives.
+- **Fantastical-drive tuning**: the demo fleets brawl at a brisk pace within weapon reach; the player's own
+  drive remains the fast one. Particles + glows + tracers all flow through the one instanced draw and the
+  bloom chain.
+- *Verified (bounded run):* 900-frame run renders 60 ships + glows + tracers + explosions with **no
+  validation errors** (exit 0), attrition occurs (kills → explosions); 211 tests green.
+- *Next:* **MSAA** (kill the jaggies) and the diegetic **HUD/text** overlay.
+
+---
+
 ## Phase 24 — HDR + bloom (the glow that sells space combat)
 
 The biggest single "stunning" lever: the scene now renders to a floating-point HDR target and is bloomed
