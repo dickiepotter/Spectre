@@ -3,11 +3,11 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RP.Math", "..\Math\RP.Math\RP.Math.csproj", "{137CE4B7-0BA9-4698-85CA-80860D4C62F8}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RP.Math", "extern\Math\RP.Math\RP.Math.csproj", "{137CE4B7-0BA9-4698-85CA-80860D4C62F8}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RP.Game", "..\Game\RP.Game\RP.Game.csproj", "{CAEF96E6-14C3-499B-AFA1-43E050560EB9}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RP.Game", "extern\Game\RP.Game\RP.Game.csproj", "{CAEF96E6-14C3-499B-AFA1-43E050560EB9}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RP.Game.Tests", "..\Game\RP.Game.Tests\RP.Game.Tests.csproj", "{1D44DB1D-554C-4810-AD9F-6AC4259EC067}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RP.Game.Tests", "extern\Game\RP.Game.Tests\RP.Game.Tests.csproj", "{1D44DB1D-554C-4810-AD9F-6AC4259EC067}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RP.Spectre", "RP.Spectre\RP.Spectre.csproj", "{76BDA384-A76E-4BD0-A09D-0B1EA290DB8E}"
 EndProject

@@ -26,11 +26,25 @@ RP.Game      the engine: rendering, physics, audio, scene, mechanics — valid f
 RP.Spectre   this game: ships, weapons, the Tantalus wreck, missions, HUD, tuning data
 ```
 
-Dependencies point strictly upward. `RP.Math` and `RP.Game` live in sibling repositories
-(`../Math`, `../Game`); `Spectre.sln` references all three.
+Dependencies point strictly upward. `RP.Math` and `RP.Game` are their own repositories, wired into this
+one as **git submodules** under `extern/` so a single recursive clone pulls all three; `Spectre.sln`
+references them there.
 
-- Engine library overview: [`../Game/README.md`](../Game/README.md)
+- Engine library overview: [`extern/Game/README.md`](extern/Game/README.md)
 - Maths library inventory + the conventions the whole engine inherits: [`docs/MATH_INVENTORY.md`](docs/MATH_INVENTORY.md)
+
+## Getting the code
+
+```sh
+# clone Spectre AND its Math + Game submodules in one go
+git clone --recurse-submodules https://github.com/dickiepotter/Spectre.git
+
+# already cloned without --recurse-submodules? pull them in:
+git submodule update --init --recursive
+```
+
+The submodules track each engine repo's default branch; `git submodule update --remote` advances them to
+the latest published engine commit. (Each repo still builds standalone from its own `.sln`.)
 
 ## Build, run, and test
 
@@ -39,7 +53,7 @@ Prerequisites: **.NET SDK 8+** (10 is fine). For the rendering phases you will a
 
 ```sh
 # from this folder (D:\Source\personal-github\Spectre)
-dotnet build Spectre.sln           # builds Math + Game + Spectre
+dotnet build Spectre.sln           # builds Math + Game (from extern/) + Spectre
 dotnet test  Spectre.sln           # runs the full headless test suite
 dotnet run --project RP.Spectre              # opens the window and flies (WASD/mouse; T toggles assist)
 dotnet run --project RP.Spectre -- --frames 200   # bounded run: auto-closes, asserts zero validation errors
@@ -71,6 +85,7 @@ dotnet run --project RP.Spectre -- --frames 200   # bounded run: auto-closes, as
 
 ```
 Spectre.sln                  integrated solution (Math + Game + Spectre)
+extern/Math, extern/Game     RP.Math + RP.Game engine repos, as git submodules
 RP.Spectre/                  the game executable (this title's content + entry point)
 RP.Spectre.Tests/            this title's tests
 docs/MATH_INVENTORY.md       RP.Math public surface + pinned conventions

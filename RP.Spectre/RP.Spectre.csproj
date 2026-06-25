@@ -20,7 +20,7 @@
   <ItemGroup>
     <!-- Spectre depends on both lower layers (Game brings Math transitively, but the brief's
          dependency picture is Spectre -> Game -> Math; referencing Game alone is enough). -->
-    <ProjectReference Include="..\..\Game\RP.Game\RP.Game.csproj" />
+    <ProjectReference Include="..\extern\Game\RP.Game\RP.Game.csproj" />
   </ItemGroup>
 
   <ItemGroup>
