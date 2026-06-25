@@ -5,6 +5,26 @@ A per-phase narrative of *what* was built, *why*, and every *deviation* from the
 
 ---
 
+## Phase 17 — Adaptive audio: the dread director  *(S15.4 tension/cue model met; mixer playback deferred)*
+
+- **`RP.Spectre.Audio.TensionDirector`** (+ `ThreatContext`, `AudioCue`): turns the tactical situation
+  (inside the wreck, nearby hostiles, nearest-threat range, taking fire) into a single smoothed `Tension`
+  [0,1] and an `AudioCue` (Calm → Unease → Stalk → Combat). Tension **rises fast and decays slow** so the
+  *dread lingers* after a threat passes — the feel of the descent — and the cue is chosen through a
+  **hysteresis band** so layers don't flutter on a threshold (active fire forces Combat outright). `MusicGain`
+  scales a tension-driven intensity by the player's music-volume setting via the engine's
+  `AudioMath.ComposeGain`.
+- *Verified:* starts calm/quiet; fire drives tension high and the cue to Combat; after going calm, tension is
+  still elevated but falling (slow decay > fast rise asymmetry); inside the wreck raises a baseline Unease
+  with no enemies; a close-but-not-firing stalker reaches Stalk (not Combat); and music gain rises with
+  tension and scales with the volume setting. 6 tests.
+- *Deferred:* the actual stem/ambience **playback + crossfade** on the engine `AudioEngine` consumes this
+  director's `Cue`/`MusicGain`; the *pacing logic* — what the descent should feel like — is complete and
+  tested.
+- Tests: 780 RP.Math + 100 RP.Game + 85 Spectre = **965 total**.
+
+---
+
 ## Phase 16 — Menus + navigation  *(the 3.5 menu-UI deferral; model + game tree met, draw deferred)*
 
 - **`RP.Game.Mechanics.Menu` / `MenuItem` / `MenuController`** (engine): a generic menu model — a moving
