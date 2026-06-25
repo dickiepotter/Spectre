@@ -1,7 +1,9 @@
 namespace RP.Spectre
 {
     using System;
+    using System.Collections.Generic;
     using System.Diagnostics;
+    using System.Runtime.InteropServices;
     using RP.Game.Audio;
     using RP.Game.Core;
     using RP.Game.Core.Logging;
@@ -10,6 +12,7 @@ namespace RP.Spectre
     using RP.Game.Platform;
     using RP.Game.Scene;
     using RP.Math;
+    using RP.Spectre.Ships;
     using RP.Spectre.State;
     using RP.Spectre.World;
     using Silk.NET.Input;
@@ -18,20 +21,16 @@ namespace RP.Spectre
 
     /// <summary>
     /// The Spectre executable's entry point: open a window, bring up the Vulkan renderer, and run the
-    /// fixed-timestep loop, drawing a lit, spinning 3D cube each frame.
+    /// fixed-timestep loop — now drawing a <b>live fleet battle</b>. A headless <see cref="BattleSimulation"/>
+    /// fights two fleets built from the ship roster; each frame their hulls (and the debris of the dead) are
+    /// handed to the renderer as instanced cubes, sized per ship class, while the player flies the cockpit
+    /// camera freely through it (build brief S7/S20 — "a battle of 50+ ships reads as a real engagement").
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// This is the Phase 0/1 milestone made real (build brief S19): a window rendering a lit, moving 3D
-    /// scene through our from-scratch Vulkan renderer, with all transforms from RP.Math, validation layers
-    /// on and routed to the engine logger, surviving resize/minimise, and tearing down cleanly.
-    /// </para>
-    /// <para>
-    /// Pass <c>--frames N</c> (or set <c>SPECTRE_FRAMES=N</c>) to auto-close after N rendered frames. That
-    /// turns the otherwise-interactive window into a bounded run the build can execute unattended and then
-    /// assert that no Vulkan validation error was logged — a headless-ish check of the "smoke pass" that
-    /// would normally need a human watching the screen.
-    /// </para>
+    /// Pass <c>--frames N</c> (or set <c>SPECTRE_FRAMES=N</c>) to auto-close after N rendered frames — a
+    /// bounded run the build can execute unattended and then assert that no Vulkan validation error was
+    /// logged. The full ship/projectile/HUD <i>art</i> is still cubes; the systems beneath are the tested
+    /// ones from the build log. This is the visible smoke pass for the whole stack.
     /// </remarks>
     public static class Program
     {
@@ -39,39 +38,44 @@ namespace RP.Spectre
         {
             int maxFrames = ParseMaxFrames(args);
 
-            // A collecting sink lets us scan after the run for any validation error; the console sink shows
-            // lifecycle and validation output live.
             var validationWatch = new CollectingLogSink();
             var log = new Logger(new ConsoleLogSink(), validationWatch) { MinimumLevel = LogLevel.Info };
-
-            log.Info("Spectre", "Phase 3 — Newtonian flight (WASD thrust, mouse steer, Q/E roll, T assist)." +
+            log.Info("Spectre", "Live fleet battle. Fly the cockpit: WASD thrust, Space/Ctrl up/down, mouse steer, " +
+                                 "Q/E roll, Shift boost, T flight-assist, F5 quicksave." +
                                  (maxFrames > 0 ? $" Auto-closing after {maxFrames} frames." : string.Empty));
 
-            IWindow window = VulkanWindow.Create("SPECTRE — Phase 1", 1280, 720);
+            IWindow window = VulkanWindow.Create("SPECTRE", 1280, 720);
             window.Initialize();
 
             using var renderer = new VulkanRenderer(window, log, enableValidation: true);
-
-            // The window owns the truth about its size; tell the renderer to rebuild the swapchain on change.
             window.FramebufferResize += (Vector2D<int> _) => renderer.NotifyResize();
 
-            // The player ship: a Newtonian rigid body starting just outside the cube grid, looking in.
-            var ship = new RigidBody { Position = new Vector3d(0, 4, 25) };
+            // The player: a free-flying cockpit, held back and looking down the +Z axis at the engagement,
+            // which is centred on the world origin. Default orientation faces -Z, so the fight is dead ahead.
+            var ship = new RigidBody { Position = new Vector3d(0, 120, 900) };
             var shipController = new ShipController(ship);
             var floatingOrigin = new FloatingOrigin(rebaseThreshold: 4096);
 
-            // In bounded mode there is no pilot, so script a fast burn to prove the ship can fly tens of km
-            // and the floating origin rebases without precision loss or validation errors.
-            bool scriptedFlight = maxFrames > 0;
-            if (scriptedFlight) ship.Velocity = new Vector3d(0, 0, -8000); // 8 km/s along the hull
+            // Two fleets drawn up from the roster, fought headless by the battle sim.
+            var battle = BuildBattle(seed: 20260625);
+            var debris = new DebrisField(prewarm: 256);
+            var wasAlive = new bool[battle.Combatants.Count];
+            for (int i = 0; i < wasAlive.Length; i++) wasAlive[i] = battle.Combatants[i].Alive;
 
-            // Settings + save/resume. The full menu UI (Main Menu / Continue) arrives with text rendering;
-            // for now settings load on boot, a prior save auto-continues, and F5 quicksaves (build brief S21).
+            // Reusable per-frame instance buffers (positions/colours/scales) for the renderer.
+            var positions = new List<Vector3d>(VulkanInstanceBudget);
+            var colors = new List<Vector3>(VulkanInstanceBudget);
+            var scales = new List<float>(VulkanInstanceBudget);
+
             SpectreSettings settings = SaveSystem.LoadSettings();
             shipController.FlightAssist = settings.FlightAssistDefault;
             renderer.Camera.FieldOfView = new Angle(settings.FieldOfViewDegrees, AngleUnits.DEG);
+            renderer.ClearColor = (0.01f, 0.01f, 0.02f, 1f); // deep space
+            renderer.ModelTransform = Matrix.Identity;        // hulls don't spin; the battle moves them
+            bool interactive = maxFrames <= 0;
+
             int worldSeed = 1;
-            if (!scriptedFlight && SaveSystem.TryLoad(out SpectreSaveData? existingSave) && existingSave is not null)
+            if (interactive && SaveSystem.TryLoad(out SpectreSaveData? existingSave) && existingSave is not null)
             {
                 SaveSystem.ApplyTo(existingSave, ship);
                 shipController.FlightAssist = existingSave.FlightAssist;
@@ -80,47 +84,39 @@ namespace RP.Spectre
             }
             bool previousQuicksaveKey = false;
 
-            // Controls: WASD thrust/strafe, Space/Ctrl up/down, mouse steer, Q/E roll, Shift boost,
-            // T toggles flight-assist.
-            using IInputContext input = window.CreateInput();
+            IInputContext input = window.CreateInput();
             IKeyboard? keyboard = input.Keyboards.Count > 0 ? input.Keyboards[0] : null;
             IMouse? mouse = input.Mice.Count > 0 ? input.Mice[0] : null;
 
-            // Audio bring-up: open OpenAL and play a positional tone off to one side so it pans as you fly.
-            // Guarded — a machine with no audio device must not stop the game.
+            // Audio bring-up, guarded so a machine with no device still runs.
             AudioEngine? audio = null;
             try
             {
                 audio = new AudioEngine(log);
-                audio.PlayAt(AudioEngine.GenerateSineTone(440f, 2.0f), 44100, new Vector3(12, 0, 0), gain: 1f);
             }
             catch (Exception ex)
             {
                 log.Warning("Audio", $"Audio unavailable, continuing without it: {ex.Message}");
             }
 
-            // 60 Hz simulation, decoupled from however fast the GPU presents.
             var accumulator = new FixedTimestepAccumulator(fixedDeltaSeconds: 1.0 / 60.0);
             var time = new GameTime(accumulator.FixedDeltaSeconds, 0.0, 0);
-
             var clock = Stopwatch.StartNew();
             double lastSeconds = 0.0;
             long renderedFrames = 0;
 
             while (!window.IsClosing)
             {
-                window.DoEvents(); // pump OS messages (resize, close, input)
+                window.DoEvents();
 
                 double now = clock.Elapsed.TotalSeconds;
                 double frameSeconds = now - lastSeconds;
                 lastSeconds = now;
 
-                // Sample input once per frame into a thrust/torque intent for this frame's fixed steps.
-                if (keyboard is not null && mouse is not null)
+                if (interactive && keyboard is not null && mouse is not null)
                 {
                     shipController.ReadControls(keyboard, mouse);
 
-                    // F5 quicksave (rising edge), so the save/resume loop is usable before the menu exists.
                     bool quicksaveKey = keyboard.IsKeyPressed(Key.F5);
                     if (quicksaveKey && !previousQuicksaveKey)
                     {
@@ -134,47 +130,42 @@ namespace RP.Spectre
                 for (int i = 0; i < steps; i++)
                 {
                     time = time.Advanced();
-                    if (scriptedFlight)
-                    {
-                        ship.Integrate(accumulator.FixedDeltaSeconds); // coast the scripted burn
-                    }
-                    else
-                    {
-                        shipController.FixedStep(accumulator.FixedDeltaSeconds); // 6-DoF physics on a fixed step
-                    }
+                    double dt = accumulator.FixedDeltaSeconds;
+
+                    if (interactive) shipController.FixedStep(dt);
+                    else ship.Integrate(dt); // bounded mode: hold the scripted vantage
+
+                    battle.Step(dt);
+                    debris.Step(dt);
+                    SpawnDebrisForNewKills(battle, debris, wasAlive);
                 }
 
-                // Floating origin follows the ship, so rendering stays jitter-free however far you fly.
+                // Floating origin follows the player so render coordinates stay small and precise.
                 if (floatingOrigin.MaybeRebase(ship.Position))
                 {
-                    log.Info("World", $"Floating-origin rebased at ~{ship.Position.Magnitude:0} m out — render space reset, no jitter.");
+                    log.Info("World", $"Floating-origin rebased at ~{ship.Position.Magnitude:0} m out.");
                 }
                 renderer.RenderOrigin = floatingOrigin.Origin;
 
-                // Cockpit camera rides the ship: render-space position, looking along the hull.
                 renderer.Camera.Position = floatingOrigin.ToRenderSpace(ship.Position);
                 renderer.Camera.Target = renderer.Camera.Position + ship.Forward;
                 renderer.Camera.Up = ship.Up;
 
-                // Keep the audio listener on the camera so the positional tone pans as you move.
                 if (audio is not null)
                 {
                     Vector3d forward = (renderer.Camera.Target - renderer.Camera.Position).NormalizeOrDefault();
-                    audio.SetListener(
-                        (Vector3)renderer.Camera.Position, Vector3.Zero, (Vector3)forward, Vector3.UnitY);
+                    audio.SetListener((Vector3)renderer.Camera.Position, Vector3.Zero, (Vector3)forward, Vector3.UnitY);
                 }
 
-                // Spin the cube from the simulation clock: a full turn about Y every ~6 s, plus a slower
-                // tumble about X so all faces come into view.
-                double spin = time.TotalSeconds;
-                renderer.ModelTransform =
-                    Matrix.RotationMatrixAboutYAxis(spin) * Matrix.RotationMatrixAboutXAxis(spin * 0.5);
+                BuildInstances(battle, debris, positions, colors, scales);
+                renderer.SetInstances(
+                    CollectionsMarshal.AsSpan(positions),
+                    CollectionsMarshal.AsSpan(colors),
+                    CollectionsMarshal.AsSpan(scales));
 
                 renderer.DrawFrame(accumulator.Alpha);
                 renderedFrames++;
 
-                // In bounded mode, force one resize halfway through to exercise swapchain recreation —
-                // the Phase 0 acceptance "resizing does not crash or leak", made automatic.
                 if (maxFrames > 0 && renderedFrames == maxFrames / 2)
                 {
                     log.Info("Spectre", "Scripted resize → 960x540 to exercise swapchain recreation.");
@@ -183,14 +174,18 @@ namespace RP.Spectre
 
                 if (maxFrames > 0 && renderedFrames >= maxFrames)
                 {
-                    log.Info("Spectre", $"Reached {maxFrames}-frame limit; closing.");
+                    log.Info("Spectre", $"Reached {maxFrames}-frame limit; closing. " +
+                                         $"Survivors — Coalition {battle.AliveCount(Faction.Coalition)}, " +
+                                         $"Severance {battle.AliveCount(Faction.Severance)}.");
                     window.Close();
                 }
             }
 
             renderer.WaitIdle();
+            // Dispose the input context BEFORE the window: GLFW unhooks its callbacks from the live window, so
+            // tearing the window down first leaves it marshalling callbacks onto a dead handle (a hard crash).
+            input.Dispose();
             audio?.Dispose();
-            // `using` disposes the renderer (clean Vulkan teardown) before the window is destroyed below.
             renderer.Dispose();
             window.Dispose();
 
@@ -200,6 +195,82 @@ namespace RP.Spectre
                 : $"Clean run: {renderedFrames} frames, {time.StepCount} sim steps, no validation errors.");
 
             return hadErrors ? 1 : 0;
+        }
+
+        private const int VulkanInstanceBudget = 4096;
+
+        // Faction tints for the instanced hulls.
+        private static readonly Vector3 CoalitionColor = new(0.30f, 0.55f, 1.00f); // cool blue
+        private static readonly Vector3 SeveranceColor = new(1.00f, 0.35f, 0.28f); // hostile red
+        private static readonly Vector3 DebrisColor = new(0.45f, 0.45f, 0.48f);    // dead grey
+
+        /// <summary>Draws up two fleets from the roster: fighters, a couple of corvettes, and a cruiser flagship
+        /// per side, in two formations facing off across the origin.</summary>
+        private static BattleSimulation BuildBattle(int seed)
+        {
+            var rng = new Random(seed);
+            var ships = new List<Combatant>();
+
+            void Wing(Faction faction, double centreX)
+            {
+                bool coalition = faction == Faction.Coalition;
+                double Spread() => (rng.NextDouble() - 0.5) * 500;
+                Vector3d At() => new Vector3d(centreX + Spread() * 0.3, Spread(), Spread());
+
+                // Light fighters use the Wasp hull, re-flagged to this wing's faction.
+                for (int i = 0; i < 8; i++)
+                    ships.Add(ShipFactory.Build(ShipCatalog.SeveranceWasp(), At(), faction));
+                for (int i = 0; i < 3; i++)
+                    ships.Add(ShipFactory.Build(coalition ? ShipCatalog.CoalitionCorvette() : ShipCatalog.SeveranceHornet(), At()));
+                ships.Add(ShipFactory.Build(coalition ? ShipCatalog.CoalitionCruiser() : ShipCatalog.SeveranceLocust(), new Vector3d(centreX, 0, 0)));
+            }
+
+            Wing(Faction.Coalition, -700);
+            Wing(Faction.Severance, 700);
+            return new BattleSimulation(ships);
+        }
+
+        private static void SpawnDebrisForNewKills(BattleSimulation battle, DebrisField debris, bool[] wasAlive)
+        {
+            IReadOnlyList<Combatant> ships = battle.Combatants;
+            for (int i = 0; i < ships.Count; i++)
+            {
+                if (wasAlive[i] && !ships[i].Alive)
+                {
+                    Combatant dead = ships[i];
+                    int chunks = Math.Clamp((int)(dead.Radius), 6, 40);
+                    debris.Spawn(dead.Body.Position, dead.Body.Velocity, dead.Body.Mass, chunks,
+                        scatterSpeed: 12 + dead.Radius * 0.5, rng: SharedDebrisRng);
+                    wasAlive[i] = false;
+                }
+            }
+        }
+
+        private static readonly Random SharedDebrisRng = new(1);
+
+        private static void BuildInstances(
+            BattleSimulation battle, DebrisField debris,
+            List<Vector3d> positions, List<Vector3> colors, List<float> scales)
+        {
+            positions.Clear();
+            colors.Clear();
+            scales.Clear();
+
+            foreach (Combatant c in battle.Combatants)
+            {
+                if (!c.Alive) continue;
+                positions.Add(c.Body.Position);
+                colors.Add(c.Faction == Faction.Coalition ? CoalitionColor : SeveranceColor);
+                scales.Add((float)(c.Radius * 2.0)); // unit cube -> ship-diameter cube
+            }
+
+            foreach (RigidBody chunk in debris.Active)
+            {
+                if (positions.Count >= VulkanInstanceBudget) break;
+                positions.Add(chunk.Position);
+                colors.Add(DebrisColor);
+                scales.Add(6f);
+            }
         }
 
         private static int ParseMaxFrames(string[] args)

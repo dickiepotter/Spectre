@@ -5,6 +5,29 @@ A per-phase narrative of *what* was built, *why*, and every *deviation* from the
 
 ---
 
+## Phase 21 — First gameplay on screen: the battle, drawn
+
+- **Renderer instancing is now fed from the game, not a hardcoded grid.** `VulkanRenderer.SetInstances(world
+  positions, colours, scales)` replaces the internal cube grid: the game hands the renderer the live scene
+  each frame (true double positions, rebased through the floating origin, frustum-culled). Per-instance
+  **scale** was added end to end — `InstanceData` gains a `Scale`, the pipeline a 6th vertex attribute
+  (`location = 5`, `R32_SFLOAT`), and `mesh.vert` scales the unit cube before placing it — so one cube can be
+  a fighter or a capital.
+- **`Program.cs` now draws a live fleet battle.** Two fleets drawn from the roster (`ShipFactory` +
+  `ShipCatalog`) are fought headless by `BattleSimulation`; each frame the living hulls (coloured by faction,
+  sized by class) and the **debris of the dead** (`DebrisField`, bursting on each kill) are pushed to the
+  renderer, while the player flies the cockpit camera freely through it. This is the visible smoke pass for
+  Phases 7/14/18 at once.
+- *Fixed:* a hard crash on exit — the Silk.NET input context was being disposed *after* the window, leaving
+  GLFW marshalling callbacks onto a dead handle; it is now disposed first.
+- *Verified (human + bounded run):* `--frames 150` renders the battle, survives the scripted resize, tears
+  down cleanly and reports **no validation errors** (exit 0); both fleets take attrition (9 v 9 survivors at
+  the cap). 208 solution tests still green.
+- *Still cubes, deliberately:* ships/debris are coloured scaled cubes, not meshes; HUD/menu **text** and real
+  art remain the outstanding GPU/art work. But the game now *shows* its tested systems instead of a demo cube.
+
+---
+
 ## Phase 20 — Systems complete: capstone integration + state of the build
 
 - **Capstone playthrough** (`RP.Spectre.Tests.PlaythroughTests`): one campaign beat played **end to end,
