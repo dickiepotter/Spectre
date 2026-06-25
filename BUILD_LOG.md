@@ -5,6 +5,32 @@ A per-phase narrative of *what* was built, *why*, and every *deviation* from the
 
 ---
 
+## Phase 13 — The descent: tumbling wreck + interior streaming  *(local-frame core met; rendering deferred)*
+
+- **`RP.Game.Scene.ReferenceFrame`** (engine): a moving, rotating local coordinate frame — a world authored
+  in clean local space and dropped into the galaxy at a drifting/tumbling pose. Local↔world point and
+  direction transforms (round-trip exact), `PointVelocity` = `v + ω × r` (the hull's true motion at a point,
+  what a ship must match to ride it), and `Advance` (drift + axis-angle tumble, same scheme as `RigidBody`).
+  Composes with `FloatingOrigin` — local→world here, world→render there. 6 tests.
+- **`RP.Game.Scene.ChunkStreamer`** (engine): generic 3D chunk residency around a moving focus, with a
+  **load/unload hysteresis band** (same anti-thrash idea as `SimTierManager`) so loitering on a boundary
+  doesn't page a chunk in and out. Pure bookkeeping: returns the load/unload change set for an asset loader
+  to act on; knows nothing about what a chunk *contains*. 6 tests.
+- **`RP.Spectre.World.Wreck`** (the *Tantalus*): binds the two — a ~3.5 km hulk (700×520 m abeam/deep)
+  drifting and tumbling at ~0.6°/s about a tilted axis, interior streamed in 200 m chunks (600 m load /
+  1000 m unload). `Contains` (inside the hull box), `HullVelocityAt` (match-the-tumble velocity), and
+  `Update` (advance the tumble, then restream **in local space** so the resident set stays centred on the
+  player *even as the hull rotates beneath them*). 5 tests.
+- *Verified (S13/S14):* transforms round-trip; the tumble carries fixed points with the right tangential
+  velocity; chunks page in/out only past their respective radii (hysteresis holds on a boundary nudge); and
+  a full descent sweep stern→bow follows the player into new chunks and drops the entrance — all headless.
+- *Deferred:* the interior **art/mesh** per chunk, the dread-pacing audio, and rendering the tumble (cockpit
+  "down" swinging) ride on the existing instancing + this frame/streamer core; the local-frame *maths* and
+  residency *rules* are complete and tested.
+- Tests: 780 RP.Math + 93 RP.Game + 57 Spectre = **930 total**.
+
+---
+
 ## Phase 12 — Missions + difficulty  *(objective/mission layer + difficulty dials; acceptance met)*
 
 - **`RP.Spectre.Missions.Difficulty`** (committed at phase start): `DifficultyPreset` (Story/Standard/Hard/
