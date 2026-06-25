@@ -20,7 +20,13 @@ namespace RP.Spectre.Ships
     /// </remarks>
     public sealed class BattleSimulation
     {
+        // The hull mesh's frame: +X right, +Y up, forward is -Z (so +Z is NEAR the viewer). Ships are turned
+        // to face their heading in this convention so the renderer's per-instance rotation reads as flight.
+        private static readonly OrthogonalAxes ShipAxes =
+            new OrthogonalAxes(AxisAlignment.RIGHT, AxisAlignment.UP, AxisAlignment.NEAR);
+
         private readonly List<Combatant> _combatants;
+        private readonly List<Vector3d> _positionScratch = new List<Vector3d>();
 
         /// <summary>Distance within which a ship will open fire (metres).</summary>
         public double WeaponRange { get; set; } = 1500;
@@ -30,6 +36,10 @@ namespace RP.Spectre.Ships
 
         /// <summary>Maximum steering force (N) a ship applies to manoeuvre.</summary>
         public double MaxThrust { get; set; } = 600_000;
+
+        /// <summary>Neighbour distance (m) inside which ships push apart, so packs spread into a brawl instead
+        /// of collapsing to a point — the difference between a furball and a static clump.</summary>
+        public double SeparationRadius { get; set; } = 220;
 
         public BattleSimulation(IEnumerable<Combatant> combatants)
         {
@@ -45,6 +55,13 @@ namespace RP.Spectre.Ships
         /// <summary>Advances the whole battle by <paramref name="dt"/> seconds.</summary>
         public void Step(double dt)
         {
+            // Snapshot live positions once for the separation rule (cheap O(n) gather, O(n^2) test).
+            _positionScratch.Clear();
+            foreach (Combatant c in _combatants)
+            {
+                if (c.Alive) _positionScratch.Add(c.Body.Position);
+            }
+
             foreach (Combatant ship in _combatants)
             {
                 if (!ship.Alive) continue;
@@ -55,11 +72,14 @@ namespace RP.Spectre.Ships
                     Vector3d toTarget = target.Body.Position - ship.Body.Position;
                     double distance = toTarget.Magnitude;
 
-                    // Manoeuvre toward a firing position (lead the target).
+                    // Manoeuvre toward a firing position (lead the target)...
                     Vector3d steer = Steering.Pursue(
                         ship.Body.Position, ship.Body.Velocity,
                         target.Body.Position, target.Body.Velocity, MaxSpeed, MaxThrust);
-                    ship.Body.ApplyForce(steer);
+
+                    // ...and shove away from whoever is too close, so the fight spreads out and swirls.
+                    steer += Steering.Separation(ship.Body.Position, _positionScratch, SeparationRadius, MaxThrust);
+                    ship.Body.ApplyForce(steer.ClampMagnitude(MaxThrust));
 
                     // Fire when in range and the gun is ready (heat/capacitor permitting).
                     if (distance <= WeaponRange && ship.Weapon.TryFire(ship.Capacitor, ship.Heat))
@@ -76,6 +96,26 @@ namespace RP.Spectre.Ships
                 ship.Shield.Update(dt);
                 ship.Body.Velocity = ship.Body.Velocity.ClampMagnitude(MaxSpeed);
                 ship.Body.Integrate(dt);
+
+                // Turn the hull to face where it's going (or, when nearly stationary, toward its prey), so the
+                // renderer draws a banking dogfight instead of a frozen formation.
+                FaceHeading(ship, target);
+            }
+        }
+
+        // Orient the body to look along its heading. Velocity wins while moving; a near-stationary ship aims at
+        // its target instead, so noses never snap to a default pose.
+        private static void FaceHeading(Combatant ship, Combatant? target)
+        {
+            Vector3d forward = ship.Body.Velocity;
+            if (forward.MagnitudeSquared < 25.0) // < 5 m/s: heading is ill-defined, aim at the enemy
+            {
+                forward = target is not null ? target.Body.Position - ship.Body.Position : ship.Body.Forward;
+            }
+
+            if (forward.MagnitudeSquared > 1e-6)
+            {
+                ship.Body.Orientation = Quaternion.LookRotation(forward, ShipAxes);
             }
         }
 

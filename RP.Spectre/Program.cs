@@ -76,6 +76,7 @@ namespace RP.Spectre
             var positions = new List<Vector3d>(VulkanInstanceBudget);
             var colors = new List<Vector3>(VulkanInstanceBudget);
             var scales = new List<float>(VulkanInstanceBudget);
+            var rotations = new List<Vector4>(VulkanInstanceBudget);
             var hudLines = new List<HudVertex>(512);
 
             SpectreSettings settings = SaveSystem.LoadSettings();
@@ -197,11 +198,12 @@ namespace RP.Spectre
                     audio.SetListener((Vector3)renderer.Camera.Position, Vector3.Zero, (Vector3)forward, Vector3.UnitY);
                 }
 
-                BuildInstances(battle, debris, projectiles, particles, positions, colors, scales);
+                BuildInstances(battle, debris, projectiles, particles, positions, colors, scales, rotations);
                 renderer.SetInstances(
                     CollectionsMarshal.AsSpan(positions),
                     CollectionsMarshal.AsSpan(colors),
-                    CollectionsMarshal.AsSpan(scales));
+                    CollectionsMarshal.AsSpan(scales),
+                    CollectionsMarshal.AsSpan(rotations));
 
                 float aspect = renderer.Camera.AspectRatio <= 0 ? 16f / 9f : (float)renderer.Camera.AspectRatio;
                 BuildHud(renderer.Camera.ViewProjection, floatingOrigin.Origin, ship, playerHeat, battle, aspect, hudLines);
@@ -259,7 +261,7 @@ namespace RP.Spectre
             void Wing(Faction faction, double centreX)
             {
                 bool coalition = faction == Faction.Coalition;
-                double Spread() => (rng.NextDouble() - 0.5) * 2600;
+                double Spread() => (rng.NextDouble() - 0.5) * 3000;
                 Vector3d At() => new Vector3d(centreX + Spread() * 0.25, Spread(), Spread());
 
                 // Light fighters use the Wasp hull, re-flagged to this wing's faction.
@@ -272,9 +274,10 @@ namespace RP.Spectre
                         new Vector3d(centreX, (i - 0.5) * 400, (i - 0.5) * 600)));
             }
 
-            // Two fleets within weapon reach so the brawl starts at once, on fantastical drives.
-            Wing(Faction.Coalition, -1300);
-            Wing(Faction.Severance, 1300);
+            // Two fleets drawn up facing off across the origin: far enough apart that they visibly charge and
+            // close before the brawl, near enough that it joins within the demo's first seconds.
+            Wing(Faction.Coalition, -3200);
+            Wing(Faction.Severance, 3200);
             return new BattleSimulation(ships)
             {
                 WeaponRange = 2200,
@@ -313,18 +316,21 @@ namespace RP.Spectre
 
         private static void BuildInstances(
             BattleSimulation battle, DebrisField debris, ProjectileSystem projectiles, ParticleSystem particles,
-            List<Vector3d> positions, List<Vector3> colors, List<float> scales)
+            List<Vector3d> positions, List<Vector3> colors, List<float> scales, List<Vector4> rotations)
         {
             positions.Clear();
             colors.Clear();
             scales.Clear();
+            rotations.Clear();
 
             foreach (Combatant c in battle.Combatants)
             {
                 if (!c.Alive) continue;
+                var hullRot = ToVector4(c.Body.Orientation); // hull points along its heading (Phase 30)
                 positions.Add(c.Body.Position);
                 colors.Add(c.Faction == Faction.Coalition ? CoalitionColor : SeveranceColor);
                 scales.Add((float)(c.Radius * 2.0)); // unit hull -> ship-diameter hull
+                rotations.Add(hullRot);
 
                 // A glowing engine bloom trailing the direction of travel.
                 double speed = c.Body.Velocity.Magnitude;
@@ -334,9 +340,12 @@ namespace RP.Spectre
                     positions.Add(c.Body.Position - back * (c.Radius * 1.3));
                     colors.Add(EngineGlow);
                     scales.Add((float)(c.Radius * 0.9));
+                    rotations.Add(hullRot); // keep the rotation list index-aligned with positions
                 }
             }
 
+            // Projectiles, particles and debris are points/blobs — leave them unrotated. Because they come
+            // after the ships, the SetInstances overload pads the remaining instances with identity for free.
             foreach (Projectile p in projectiles.Active)
             {
                 if (positions.Count >= VulkanInstanceBudget) break;
@@ -361,6 +370,10 @@ namespace RP.Spectre
                 scales.Add(6f);
             }
         }
+
+        /// <summary>Narrows a double orientation quaternion to the float <see cref="Vector4"/> (x,y,z,w) the
+        /// renderer's per-instance rotation expects.</summary>
+        private static Vector4 ToVector4(Quaternion q) => new((float)q.X, (float)q.Y, (float)q.Z, (float)q.W);
 
         // --- HUD (build brief S14): a peripheral, geometric overlay built from the player + target state and
         // projected to screen space. Lines only (no font yet); colours kept bright so they read over bloom. ---
