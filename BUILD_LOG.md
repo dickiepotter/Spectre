@@ -5,6 +5,27 @@ A per-phase narrative of *what* was built, *why*, and every *deviation* from the
 
 ---
 
+## Phase 22 — Ships, not cubes + the player can shoot
+
+- **Procedural ship mesh** (`RP.Game.Rendering.Primitives`): a low-poly `Dart` hull — a faceted spindle
+  body tapering to a nose at −Z, swept wings, a dorsal fin, an exhaust-tinted tail — replaces the cube as the
+  instanced mesh. Mostly light-grey so the per-instance faction tint reads; built within the unit box so
+  per-instance scale still means "ship diameter". (`Cube` kept for fallback/debris.)
+- **The player can fire** (`Program.cs`): a ballistic autocannon with its own capacitor/heat (so the real
+  triple-gated fire discipline — cooldown + heat + charge — applies), feeding the pooled `ProjectileSystem`.
+  Left mouse fires (auto-fires in the bounded run); rounds damage the Severance hulls via `DamageRouter` and
+  a kill bursts debris. Tracers render as bright instances.
+- *Verified (human + bounded run):* `--frames 240` renders the dart-hulled battle with tracers + debris,
+  survives the resize, tears down clean, **no validation errors** (exit 0); attrition progresses. 208 tests
+  still green.
+- *Still outstanding (the GPU/art layer):* **HUD/menu text** needs a font-atlas + texture + 2D-overlay pass
+  (doesn't exist yet) — the `HudModel` already computes the numbers, only the drawing is missing. **Distinct
+  per-class meshes** and **loading external (glTF/OBJ) models** need multi-mesh draw support + an asset/
+  loader pipeline. **Enemies shooting the player** needs the player wired in as a targetable combatant.
+  These are the next phases.
+
+---
+
 ## Phase 21 — First gameplay on screen: the battle, drawn
 
 - **Renderer instancing is now fed from the game, not a hardcoded grid.** `VulkanRenderer.SetInstances(world

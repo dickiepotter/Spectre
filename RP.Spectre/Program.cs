@@ -12,6 +12,7 @@ namespace RP.Spectre
     using RP.Game.Platform;
     using RP.Game.Scene;
     using RP.Math;
+    using RP.Spectre.Combat;
     using RP.Spectre.Ships;
     using RP.Spectre.State;
     using RP.Spectre.World;
@@ -61,6 +62,13 @@ namespace RP.Spectre
             var debris = new DebrisField(prewarm: 256);
             var wasAlive = new bool[battle.Combatants.Count];
             for (int i = 0; i < wasAlive.Length; i++) wasAlive[i] = battle.Combatants[i].Alive;
+
+            // The player's guns: a ballistic autocannon (so the shots are visible tracers), with its own
+            // capacitor/heat so the real fire-discipline applies, and the projectile system they feed.
+            Weapon playerGun = WeaponCatalog.Autocannon();
+            var playerCapacitor = new Capacitor(capacity: 600, rechargeRate: 160);
+            var playerHeat = new HeatSink(maximum: 500, dissipationRate: 150);
+            var projectiles = new ProjectileSystem(prewarm: 256) { MaxRange = 6000 };
 
             // Reusable per-frame instance buffers (positions/colours/scales) for the renderer.
             var positions = new List<Vector3d>(VulkanInstanceBudget);
@@ -136,6 +144,19 @@ namespace RP.Spectre
                     else ship.Integrate(dt); // bounded mode: hold the scripted vantage
 
                     battle.Step(dt);
+
+                    // Player guns: left mouse fires (auto-fires in the bounded smoke run). The autocannon is
+                    // triple-gated (cooldown + heat + charge), so holding the trigger overheats it just like AI.
+                    playerCapacitor.Update(dt);
+                    playerHeat.Update(dt);
+                    playerGun.Update(dt);
+                    bool firing = !interactive || (mouse?.IsButtonPressed(MouseButton.Left) ?? false);
+                    if (firing && playerGun.TryFire(playerCapacitor, playerHeat))
+                    {
+                        projectiles.Fire(ship.Position + ship.Forward * 6, ship.Forward, playerGun, Faction.Coalition);
+                    }
+                    projectiles.Step(dt, battle.Combatants); // player shots damage the Severance hulls
+
                     debris.Step(dt);
                     SpawnDebrisForNewKills(battle, debris, wasAlive);
                 }
@@ -157,7 +178,7 @@ namespace RP.Spectre
                     audio.SetListener((Vector3)renderer.Camera.Position, Vector3.Zero, (Vector3)forward, Vector3.UnitY);
                 }
 
-                BuildInstances(battle, debris, positions, colors, scales);
+                BuildInstances(battle, debris, projectiles, positions, colors, scales);
                 renderer.SetInstances(
                     CollectionsMarshal.AsSpan(positions),
                     CollectionsMarshal.AsSpan(colors),
@@ -203,6 +224,7 @@ namespace RP.Spectre
         private static readonly Vector3 CoalitionColor = new(0.30f, 0.55f, 1.00f); // cool blue
         private static readonly Vector3 SeveranceColor = new(1.00f, 0.35f, 0.28f); // hostile red
         private static readonly Vector3 DebrisColor = new(0.45f, 0.45f, 0.48f);    // dead grey
+        private static readonly Vector3 TracerColor = new(1.00f, 0.92f, 0.40f);    // muzzle yellow
 
         /// <summary>Draws up two fleets from the roster: fighters, a couple of corvettes, and a cruiser flagship
         /// per side, in two formations facing off across the origin.</summary>
@@ -249,7 +271,7 @@ namespace RP.Spectre
         private static readonly Random SharedDebrisRng = new(1);
 
         private static void BuildInstances(
-            BattleSimulation battle, DebrisField debris,
+            BattleSimulation battle, DebrisField debris, ProjectileSystem projectiles,
             List<Vector3d> positions, List<Vector3> colors, List<float> scales)
         {
             positions.Clear();
@@ -261,7 +283,15 @@ namespace RP.Spectre
                 if (!c.Alive) continue;
                 positions.Add(c.Body.Position);
                 colors.Add(c.Faction == Faction.Coalition ? CoalitionColor : SeveranceColor);
-                scales.Add((float)(c.Radius * 2.0)); // unit cube -> ship-diameter cube
+                scales.Add((float)(c.Radius * 2.0)); // unit hull -> ship-diameter hull
+            }
+
+            foreach (Projectile p in projectiles.Active)
+            {
+                if (positions.Count >= VulkanInstanceBudget) break;
+                positions.Add(p.Position);
+                colors.Add(TracerColor);
+                scales.Add(10f);
             }
 
             foreach (RigidBody chunk in debris.Active)
