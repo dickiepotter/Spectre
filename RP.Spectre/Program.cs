@@ -61,8 +61,10 @@ namespace RP.Spectre
             var shipController = new ShipController(ship);
             var floatingOrigin = new FloatingOrigin(rebaseThreshold: 4096);
 
-            // Two fleets drawn up from the roster, fought headless by the battle sim.
+            // Two fleets drawn up from the roster, fought headless by the battle sim. Pacing is player-aware so
+            // the fight holds at stand-off until you fly in (Phase 42).
             var battle = BuildBattle(seed: 20260625);
+            battle.PlayerAware = true;
             var debris = new DebrisField(prewarm: 256);
             var particles = new ParticleSystem(prewarm: 1024);
             // Near dust that streams past the cockpit so straight-line flight finally feels like motion.
@@ -206,6 +208,8 @@ namespace RP.Spectre
                     }
                     previousTargetKey = targetKey;
                 }
+
+                battle.PlayerPosition = ship.Position; // pace the fight by how near the player is
 
                 int steps = accumulator.Advance(frameSeconds);
                 for (int i = 0; i < steps; i++)

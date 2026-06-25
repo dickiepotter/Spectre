@@ -41,6 +41,21 @@ namespace RP.Spectre.Ships
         /// of collapsing to a point — the difference between a furball and a static clump.</summary>
         public double SeparationRadius { get; set; } = 220;
 
+        /// <summary>When true, ships pace their aggression by how near the player is (see <see cref="PlayerPosition"/>
+        /// and <see cref="EngagementRadius"/>): far from the player they hold at stand-off and barely trade fire,
+        /// so the battle doesn't burn itself out before the player arrives; close in, they commit fully.
+        /// Off by default so headless tests keep their original all-out behaviour.</summary>
+        public bool PlayerAware { get; set; }
+
+        /// <summary>The player's world position, for <see cref="PlayerAware"/> pacing.</summary>
+        public Vector3d PlayerPosition { get; set; }
+
+        /// <summary>Within this distance of the player, ships fight all-out; beyond it they hold at stand-off.</summary>
+        public double EngagementRadius { get; set; } = 3500;
+
+        // Simulation time, for deterministic evasive weaving and the stand-off fire stutter.
+        private double _elapsed;
+
         public BattleSimulation(IEnumerable<Combatant> combatants)
         {
             _combatants = combatants.ToList();
@@ -55,6 +70,8 @@ namespace RP.Spectre.Ships
         /// <summary>Advances the whole battle by <paramref name="dt"/> seconds.</summary>
         public void Step(double dt)
         {
+            _elapsed += dt;
+
             // Snapshot live positions once for the separation rule (cheap O(n) gather, O(n^2) test).
             _positionScratch.Clear();
             foreach (Combatant c in _combatants)
@@ -62,8 +79,9 @@ namespace RP.Spectre.Ships
                 if (c.Alive) _positionScratch.Add(c.Body.Position);
             }
 
-            foreach (Combatant ship in _combatants)
+            for (int i = 0; i < _combatants.Count; i++)
             {
+                Combatant ship = _combatants[i];
                 if (!ship.Alive) continue;
 
                 Combatant? target = NearestEnemy(ship);
@@ -72,21 +90,44 @@ namespace RP.Spectre.Ships
                     Vector3d toTarget = target.Body.Position - ship.Body.Position;
                     double distance = toTarget.Magnitude;
 
-                    // Manoeuvre toward a firing position (lead the target)... The steering behaviours return a
-                    // velocity-error that reads as an *acceleration* intent (magnitude ~MaxSpeed), so it must be
-                    // multiplied by mass to become a force — otherwise a 60-tonne hull barely twitches and the
-                    // fleets never close. The resulting force is clamped to the ship's MaxThrust, which is what
-                    // makes light interceptors whip around and capitals turn like fortresses.
-                    Vector3d accel = Steering.Pursue(
-                        ship.Body.Position, ship.Body.Velocity,
-                        target.Body.Position, target.Body.Velocity, MaxSpeed, double.MaxValue);
+                    // Pacing: a ship near the player commits to the kill; far from the player it holds at a
+                    // stand-off ring and only harasses, so the fleets don't wipe each other out before the
+                    // player can join in (build brief — "more of a game to play").
+                    bool engaged = !PlayerAware ||
+                        (ship.Body.Position - PlayerPosition).MagnitudeSquared <= EngagementRadius * EngagementRadius;
+
+                    // Steering: pursue a firing position when engaged, else seek a stand-off point out near the
+                    // edge of weapon range. The behaviours return a velocity-error that reads as an *acceleration*
+                    // intent (magnitude ~MaxSpeed), so it is multiplied by mass to become a force and clamped to
+                    // MaxThrust — light interceptors whip around, capitals grind.
+                    Vector3d accel;
+                    if (engaged)
+                    {
+                        accel = Steering.Pursue(
+                            ship.Body.Position, ship.Body.Velocity,
+                            target.Body.Position, target.Body.Velocity, MaxSpeed, double.MaxValue);
+                    }
+                    else
+                    {
+                        double standoff = WeaponRange * 1.35;
+                        Vector3d radial = distance > 1e-3 ? toTarget / distance : ship.Body.Forward;
+                        Vector3d holdPoint = target.Body.Position - radial * standoff;
+                        accel = Steering.Seek(ship.Body.Position, ship.Body.Velocity, holdPoint, MaxSpeed, double.MaxValue);
+                    }
+
+                    // Evasive weave: a perpendicular oscillation (per-ship phase) so dogfights jink and roll
+                    // rather than fly dead-straight lines — deterministic, so headless runs stay reproducible.
+                    double weave = System.Math.Sin(_elapsed * 2.2 + i * 1.7);
+                    accel += ship.Body.Right * (weave * MaxSpeed * 0.6);
 
                     // ...and shove away from whoever is too close, so the fight spreads out and swirls.
                     accel += Steering.Separation(ship.Body.Position, _positionScratch, SeparationRadius, MaxSpeed);
                     ship.Body.ApplyForce((accel * ship.Body.Mass).ClampMagnitude(MaxThrust));
 
-                    // Fire when in range and the gun is ready (heat/capacitor permitting).
-                    if (distance <= WeaponRange && ship.Weapon.TryFire(ship.Capacitor, ship.Heat))
+                    // Fire when in range and the gun is ready. Stand-off ships only harass (a low duty cycle),
+                    // so they sit out there trading the odd shot instead of a slugfest.
+                    bool mayFire = engaged || ((int)(_elapsed * 2.0) + i) % 5 == 0;
+                    if (mayFire && distance <= WeaponRange && ship.Weapon.TryFire(ship.Capacitor, ship.Heat))
                     {
                         // The hit lands on the facet of the target facing the shooter.
                         DamageRouter.Apply(target.ShieldForHitFrom(ship.Body.Position), target.Hull,
