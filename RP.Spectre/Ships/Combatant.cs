@@ -37,8 +37,15 @@ namespace RP.Spectre.Ships
         /// <summary>Hull-sphere radius (metres) for targeting/collision.</summary>
         public double Radius { get; }
 
+        /// <summary>Display name for the HUD readout (e.g. "WASP INTERCEPTOR").</summary>
+        public string Name { get; }
+
+        /// <summary>The player's own hull, flown externally: the battle treats it as a target (it can be shot
+        /// and regenerates its shields) but never steers or fires it, and it is not drawn as a contact.</summary>
+        public bool IsPlayer { get; set; }
+
         public Combatant(Faction faction, RigidBody body, FacetShields shields, Hull hull, Weapon weapon,
-            Capacitor capacitor, HeatSink heat, double radius)
+            Capacitor capacitor, HeatSink heat, double radius, string name = "")
         {
             Faction = faction;
             Body = body;
@@ -48,6 +55,7 @@ namespace RP.Spectre.Ships
             Capacitor = capacitor;
             Heat = heat;
             Radius = radius;
+            Name = name;
         }
 
         /// <summary>True while the hull holds.</summary>
@@ -77,6 +85,16 @@ namespace RP.Spectre.Ships
 
         /// <summary>Overall shield condition in 0..1 (mean over facets).</summary>
         public double ShieldFraction => ShieldCapacity <= 0 ? 0 : ShieldCurrent / ShieldCapacity;
+
+        /// <summary>A single facet's charge in 0..1, for the HUD damage panel.</summary>
+        public double FacetFraction(Facet f)
+        {
+            Shield s = Shields[f];
+            return s.Capacity <= 0 ? 0 : s.Current / s.Capacity;
+        }
+
+        /// <summary>Hull integrity in 0..1.</summary>
+        public double HullFraction => Hull.MaxHp <= 0 ? 0 : Hull.Hp / Hull.MaxHp;
 
         /// <summary>The facet shield that faces an attacker at <paramref name="worldSource"/> — the side a hit
         /// from there lands on, in this ship's current orientation.</summary>

@@ -33,7 +33,8 @@ namespace RP.Spectre.Ships
                 weapon: spec.PrimaryWeapon(),
                 capacitor: new Capacitor(spec.CapacitorCapacity, spec.CapacitorRecharge),
                 heat: new HeatSink(spec.HeatMax, spec.HeatDissipation),
-                radius: spec.Radius);
+                radius: spec.Radius,
+                name: spec.Name);
         }
     }
 }

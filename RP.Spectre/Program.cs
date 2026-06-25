@@ -79,6 +79,18 @@ namespace RP.Spectre
             var playerHeat = new HeatSink(maximum: 500, dissipationRate: 150);
             var projectiles = new ProjectileSystem(prewarm: 256) { MaxRange = 6000 };
 
+            // The player's own hull, added to the battle as a target so enemies can shoot it and it shows
+            // damage — but flagged IsPlayer so the sim never flies it (ShipController does) and it isn't drawn
+            // or marked as a contact. Tanky enough to survive a sustained scrap.
+            var playerCombatant = new Combatant(
+                Faction.Coalition, ship,
+                new Combat.FacetShields(capacityPerFacet: 150, regenRate: 45, regenDelay: 3.0),
+                new Combat.Hull(420), playerGun, playerCapacitor, playerHeat, radius: 10, name: "SPECTRE")
+            {
+                IsPlayer = true,
+            };
+            battle.Add(playerCombatant);
+
             // Reusable per-frame instance buffers (positions/colours/scales) for the renderer.
             // FX instances (dust, engine glow, tracers, particles, debris) drawn on the cheap default mesh...
             var positions = new List<Vector3d>(VulkanInstanceBudget);
@@ -287,7 +299,7 @@ namespace RP.Spectre
 
                 float aspect = renderer.Camera.AspectRatio <= 0 ? 16f / 9f : (float)renderer.Camera.AspectRatio;
                 BuildHud(renderer.Camera.ViewProjection, floatingOrigin.Origin, ship, playerHeat, battle,
-                    lockedTarget, playerGun.ProjectileSpeed, hangarMouth,
+                    playerCombatant, lockedTarget, playerGun.ProjectileSpeed, hangarMouth,
                     shipController.IsThrusting, playerFiring, shipController.Boosting, shipController.FlightAssist,
                     aspect, hudLines);
                 renderer.SetHudLines(CollectionsMarshal.AsSpan(hudLines));
@@ -382,7 +394,9 @@ namespace RP.Spectre
             AudioEngine? audio, short[][] booms, ref int boomCounter)
         {
             IReadOnlyList<Combatant> ships = battle.Combatants;
-            for (int i = 0; i < ships.Count; i++)
+            // Bound by wasAlive (the original roster) so the player hull, appended after, is never indexed —
+            // and the player's death never spawns debris/booms.
+            for (int i = 0; i < wasAlive.Length; i++)
             {
                 if (wasAlive[i] && !ships[i].Alive)
                 {
@@ -440,7 +454,7 @@ namespace RP.Spectre
 
             foreach (Combatant c in battle.Combatants)
             {
-                if (!c.Alive) continue;
+                if (!c.Alive || c.IsPlayer) continue; // never draw the player's own hull (you're inside it)
 
                 // The hull itself goes on the ship model, turned to face its heading (Phase 30).
                 shipPositions.Add(c.Body.Position);
@@ -532,7 +546,7 @@ namespace RP.Spectre
 
         private static void BuildHud(
             Matrix viewProj, Vector3d renderOrigin, RigidBody ship, Combat.HeatSink playerHeat,
-            BattleSimulation battle, Combatant? target, double projectileSpeed, Vector3d navPoint,
+            BattleSimulation battle, Combatant player, Combatant? target, double projectileSpeed, Vector3d navPoint,
             bool thrusting, bool firing, bool boosting, bool assist,
             float aspect, List<HudVertex> lines)
         {
@@ -593,7 +607,7 @@ namespace RP.Spectre
             // battlefield reads friend (green) / foe (red) at a glance.
             foreach (Combatant c in battle.Combatants)
             {
-                if (!c.Alive) continue;
+                if (!c.Alive || c.IsPlayer) continue;
                 if (!Project(c.Body.Position, out Vector2 p)) continue;
                 if (Math.Abs(p.X) > 1.15f || Math.Abs(p.Y) > 1.15f) continue;
                 Diamond(p, 0.012f, c.Faction == PlayerFaction ? FriendlyCol : HostileCol);
@@ -707,6 +721,50 @@ namespace RP.Spectre
             }
             Light("THR", new Vector2(-0.18f, 0.92f), thrusting, new Vector3(0.4f, 1.1f, 0.5f));
             Light("FIRE", new Vector2(0.0f, 0.92f), firing, warn);
+
+            // --- Damage panels: a quadrant shield box (edges = facets, coloured green→red by charge) plus a
+            // hull bar, for the player (own ship, bottom-right) and the locked target (top-left). ---
+            Vector3 FacetCol(double f)
+            {
+                float t = (float)Math.Clamp(f, 0, 1);
+                return new Vector3(1.2f - 0.9f * t, 0.3f + 0.8f * t, 0.2f + 0.2f * t); // red(0) -> green(1)
+            }
+
+            void ShieldQuad(Vector2 cc, float s, Combatant cm)
+            {
+                float sx = s * ax;
+                var tl = new Vector2(cc.X - sx, cc.Y - s); var tr = new Vector2(cc.X + sx, cc.Y - s);
+                var bl = new Vector2(cc.X - sx, cc.Y + s); var br = new Vector2(cc.X + sx, cc.Y + s);
+                Line(tl, tr, FacetCol(cm.FacetFraction(Combat.Facet.Fore)));       // top   = fore
+                Line(bl, br, FacetCol(cm.FacetFraction(Combat.Facet.Aft)));        // bottom= aft
+                Line(tl, bl, FacetCol(cm.FacetFraction(Combat.Facet.Port)));       // left  = port
+                Line(tr, br, FacetCol(cm.FacetFraction(Combat.Facet.Starboard)));  // right = starboard
+                float ix = sx * 0.45f;
+                Line(new Vector2(cc.X - ix, cc.Y - s * 0.45f), new Vector2(cc.X + ix, cc.Y - s * 0.45f), FacetCol(cm.FacetFraction(Combat.Facet.Dorsal)));
+                Line(new Vector2(cc.X - ix, cc.Y + s * 0.45f), new Vector2(cc.X + ix, cc.Y + s * 0.45f), FacetCol(cm.FacetFraction(Combat.Facet.Ventral)));
+                // Hull bar under the box.
+                float hy = cc.Y + s + 0.03f, hf = (float)cm.HullFraction;
+                Line(new Vector2(cc.X - sx, hy), new Vector2(cc.X + sx, hy), frame);
+                Line(new Vector2(cc.X - sx, hy), new Vector2(cc.X - sx + 2 * sx * hf, hy),
+                    hf > 0.3f ? new Vector3(0.4f, 1.0f, 0.5f) : warn);
+            }
+
+            // Own ship, bottom-right.
+            Text("HULL", new Vector2(0.74f, 0.74f), 0.032f, con);
+            ShieldQuad(new Vector2(0.86f, 0.82f), 0.05f, player);
+            Text(player.Name, new Vector2(0.66f, 0.70f), 0.032f, con);
+
+            // Locked target, top-left — name, allegiance and condition of whatever the reticule sits on.
+            if (target is not null && target.Alive)
+            {
+                bool friendly = target.Faction == PlayerFaction;
+                Vector3 tcol = friendly ? FriendlyCol : HostileCol;
+                Text(friendly ? "FRIEND" : "HOSTILE", new Vector2(-0.92f, -0.86f), 0.034f, tcol);
+                Text(target.Name, new Vector2(-0.92f, -0.81f), 0.034f, con);
+                double dist = (target.Body.Position - ship.Position).Magnitude;
+                Text($"{(int)Math.Round(dist)} M", new Vector2(-0.92f, -0.76f), 0.030f, con);
+                ShieldQuad(new Vector2(-0.84f, -0.70f), 0.045f, target);
+            }
         }
 
         // Points a chevron from screen centre toward an off-screen/behind target, using the camera basis to
@@ -762,7 +820,7 @@ namespace RP.Spectre
             var ordered = new List<Combatant>();
             foreach (Combatant c in battle.Combatants)
             {
-                if (c.Alive) ordered.Add(c);
+                if (c.Alive && !c.IsPlayer) ordered.Add(c);
             }
             if (ordered.Count == 0) return null;
 

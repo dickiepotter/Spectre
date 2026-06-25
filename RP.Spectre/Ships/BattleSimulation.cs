@@ -63,6 +63,10 @@ namespace RP.Spectre.Ships
 
         public IReadOnlyList<Combatant> Combatants => _combatants;
 
+        /// <summary>Adds a combatant to the battle (e.g. the player's own hull, so it can be targeted and take
+        /// damage even though it is flown externally).</summary>
+        public void Add(Combatant combatant) => _combatants.Add(combatant);
+
         public int AliveCount(Faction faction) => _combatants.Count(c => c.Faction == faction && c.Alive);
 
         public int AliveCount() => _combatants.Count(c => c.Alive);
@@ -83,6 +87,14 @@ namespace RP.Spectre.Ships
             {
                 Combatant ship = _combatants[i];
                 if (!ship.Alive) continue;
+
+                // The player's hull is flown externally: regenerate its shields and let it be a target, but
+                // never steer, fire, integrate or re-orient it here.
+                if (ship.IsPlayer)
+                {
+                    ship.Shields.Update(dt);
+                    continue;
+                }
 
                 Combatant? target = NearestEnemy(ship);
                 if (target is not null)
