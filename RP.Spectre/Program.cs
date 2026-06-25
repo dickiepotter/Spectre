@@ -43,7 +43,7 @@ namespace RP.Spectre
             var validationWatch = new CollectingLogSink();
             var log = new Logger(new ConsoleLogSink(), validationWatch) { MinimumLevel = LogLevel.Info };
             log.Info("Spectre", "Live fleet battle. Fly the cockpit: WASD thrust, Space/Ctrl up/down, mouse steer, " +
-                                 "Q/E roll, Shift boost, T flight-assist, F5 quicksave." +
+                                 "Q/E roll, Shift boost, T flight-assist, I invert-pitch, Esc free-mouse, F5 quicksave." +
                                  (maxFrames > 0 ? $" Auto-closing after {maxFrames} frames." : string.Empty));
 
             IWindow window = VulkanWindow.Create("SPECTRE", 1280, 720);
@@ -80,6 +80,8 @@ namespace RP.Spectre
 
             SpectreSettings settings = SaveSystem.LoadSettings();
             shipController.FlightAssist = settings.FlightAssistDefault;
+            shipController.MouseSensitivity = settings.MouseSensitivity;
+            shipController.InvertPitch = settings.InvertY;
             renderer.Camera.FieldOfView = new Angle(settings.FieldOfViewDegrees, AngleUnits.DEG);
             renderer.Camera.NearPlane = 1.0;      // cockpit scale
             renderer.Camera.FarPlane = 80_000.0;  // see ships and capitals kilometres out — the void is vast
@@ -100,6 +102,10 @@ namespace RP.Spectre
             IInputContext input = window.CreateInput();
             IKeyboard? keyboard = input.Keyboards.Count > 0 ? input.Keyboards[0] : null;
             IMouse? mouse = input.Mice.Count > 0 ? input.Mice[0] : null;
+
+            // Capture the cursor for mouse-flight: locked + hidden so steering reads continuous motion with no
+            // edge clamping. Esc toggles it (handled in the controller); we mirror that to the OS in the loop.
+            bool cursorCaptureApplied = false;
 
             // Audio bring-up, guarded so a machine with no device still runs.
             AudioEngine? audio = null;
@@ -129,6 +135,13 @@ namespace RP.Spectre
                 if (interactive && keyboard is not null && mouse is not null)
                 {
                     shipController.ReadControls(keyboard, mouse);
+
+                    // Mirror the controller's capture intent to the OS cursor whenever it changes.
+                    if (shipController.MouseCaptured != cursorCaptureApplied || renderedFrames == 0)
+                    {
+                        ApplyCursorCapture(mouse, shipController.MouseCaptured);
+                        cursorCaptureApplied = shipController.MouseCaptured;
+                    }
 
                     bool quicksaveKey = keyboard.IsKeyPressed(Key.F5);
                     if (quicksaveKey && !previousQuicksaveKey)
@@ -441,6 +454,31 @@ namespace RP.Spectre
                 if (d < bestSq) { bestSq = d; best = c; }
             }
             return best;
+        }
+
+        /// <summary>
+        /// Locks and hides the cursor for mouse-flight (so steering reads raw, continuous motion), or releases
+        /// it back to a normal pointer. Prefers <see cref="CursorMode.Raw"/> (unaccelerated) and falls back to
+        /// <see cref="CursorMode.Disabled"/> if a platform rejects raw motion — never throws into the loop.
+        /// </summary>
+        private static void ApplyCursorCapture(IMouse mouse, bool capture)
+        {
+            try
+            {
+                if (!capture)
+                {
+                    mouse.Cursor.CursorMode = CursorMode.Normal;
+                    return;
+                }
+
+                try { mouse.Cursor.CursorMode = CursorMode.Raw; }
+                catch { mouse.Cursor.CursorMode = CursorMode.Disabled; }
+            }
+            catch
+            {
+                // A headless or unusual input backend may not support cursor modes; flight still works off
+                // whatever motion it reports.
+            }
         }
 
         private static int ParseMaxFrames(string[] args)
