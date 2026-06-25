@@ -27,6 +27,14 @@ namespace RP.Spectre.Ships
 
         private readonly List<Combatant> _combatants;
         private readonly List<Vector3d> _positionScratch = new List<Vector3d>();
+        private readonly List<Vector3d> _shotsThisStep = new List<Vector3d>();
+        private readonly List<Vector3d> _impactsThisStep = new List<Vector3d>();
+
+        /// <summary>World positions where ships opened fire this step (for positional weapon-fire audio).</summary>
+        public IReadOnlyList<Vector3d> ShotsThisStep => _shotsThisStep;
+
+        /// <summary>World positions where hits landed this step (for positional impact audio).</summary>
+        public IReadOnlyList<Vector3d> ImpactsThisStep => _impactsThisStep;
 
         /// <summary>Distance within which a ship will open fire (metres).</summary>
         public double WeaponRange { get; set; } = 1500;
@@ -75,6 +83,8 @@ namespace RP.Spectre.Ships
         public void Step(double dt)
         {
             _elapsed += dt;
+            _shotsThisStep.Clear();
+            _impactsThisStep.Clear();
 
             // Snapshot live positions once for the separation rule (cheap O(n) gather, O(n^2) test).
             _positionScratch.Clear();
@@ -144,6 +154,8 @@ namespace RP.Spectre.Ships
                         // The hit lands on the facet of the target facing the shooter.
                         DamageRouter.Apply(target.ShieldForHitFrom(ship.Body.Position), target.Hull,
                             ship.Weapon.Damage, ship.Weapon.VsShield, ship.Weapon.VsHull, ship.Weapon.DamageType);
+                        _shotsThisStep.Add(ship.Body.Position);
+                        _impactsThisStep.Add(target.Body.Position);
                     }
                 }
 

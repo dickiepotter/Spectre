@@ -169,6 +169,7 @@ namespace RP.Spectre
             // synthesising 1 s of PCM mid-firefight.
             uint engineLoop = audio?.StartLoop(SoundBank.GenerateEngineDrone(), 44100, gain: 0.18f, pitch: 0.7f) ?? 0;
             short[] zapPcm = SoundBank.GenerateZap();
+            short[] impactPcm = SoundBank.GenerateImpact();
             short[][] booms = audio is null
                 ? Array.Empty<short[]>()
                 : new[] { SoundBank.GenerateExplosion(1), SoundBank.GenerateExplosion(2),
@@ -253,6 +254,16 @@ namespace RP.Spectre
                     debris.Step(dt);
                     particles.Step(dt);
                     HandleNewKills(battle, debris, particles, wasAlive, audio, booms, ref boomCounter);
+                }
+
+                // Battlefield audio: every few frames, voice the nearest enemy shot and impact so the fight
+                // around you crackles (positional, distance-attenuated). Sampled so the voice pool isn't drowned.
+                if (audio is not null && renderedFrames % 3 == 0)
+                {
+                    if (TryNearest(battle.ShotsThisStep, ship.Position, 6500, out Vector3d shotAt))
+                        audio.PlayAt(zapPcm, 44100, (Vector3)shotAt, gain: 0.30f, pitch: 0.7f);
+                    if (TryNearest(battle.ImpactsThisStep, ship.Position, 6500, out Vector3d hitAt))
+                        audio.PlayAt(impactPcm, 44100, (Vector3)hitAt, gain: 0.35f, pitch: 0.95f);
                 }
 
                 // Floating origin follows the player so render coordinates stay small and precise.
@@ -501,6 +512,22 @@ namespace RP.Spectre
         /// <summary>Narrows a double orientation quaternion to the float <see cref="Vector4"/> (x,y,z,w) the
         /// renderer's per-instance rotation expects.</summary>
         private static Vector4 ToVector4(Quaternion q) => new((float)q.X, (float)q.Y, (float)q.Z, (float)q.W);
+
+        /// <summary>Finds the event position nearest <paramref name="from"/> within <paramref name="maxRange"/>,
+        /// for picking which battlefield sound to voice this frame.</summary>
+        private static bool TryNearest(IReadOnlyList<Vector3d> events, Vector3d from, double maxRange, out Vector3d nearest)
+        {
+            nearest = default;
+            double bestSq = maxRange * maxRange;
+            bool found = false;
+            for (int i = 0; i < events.Count; i++)
+            {
+                double sq = (events[i] - from).MagnitudeSquared;
+                if (sq <= bestSq) { bestSq = sq; nearest = events[i]; found = true; }
+            }
+
+            return found;
+        }
 
         // A light steel base colour for the hull; the per-instance faction tint multiplies it into a blue
         // (Coalition) or red (Severance) ship.
