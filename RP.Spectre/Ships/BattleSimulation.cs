@@ -88,7 +88,8 @@ namespace RP.Spectre.Ships
                     // Fire when in range and the gun is ready (heat/capacitor permitting).
                     if (distance <= WeaponRange && ship.Weapon.TryFire(ship.Capacitor, ship.Heat))
                     {
-                        DamageRouter.Apply(target.Shield, target.Hull,
+                        // The hit lands on the facet of the target facing the shooter.
+                        DamageRouter.Apply(target.ShieldForHitFrom(ship.Body.Position), target.Hull,
                             ship.Weapon.Damage, ship.Weapon.VsShield, ship.Weapon.VsHull, ship.Weapon.DamageType);
                     }
                 }
@@ -97,7 +98,7 @@ namespace RP.Spectre.Ships
                 ship.Capacitor.Update(dt);
                 ship.Heat.Update(dt);
                 ship.Weapon.Update(dt);
-                ship.Shield.Update(dt);
+                ship.Shields.Update(dt);
                 ship.Body.Velocity = ship.Body.Velocity.ClampMagnitude(MaxSpeed);
                 ship.Body.Integrate(dt);
 

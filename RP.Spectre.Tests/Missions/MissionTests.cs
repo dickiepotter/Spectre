@@ -25,7 +25,7 @@ namespace RP.Spectre.Tests.Missions
             var body = new RigidBody { Position = position, Mass = 8000, InertiaScalar = 4000 };
             return new Combatant(
                 faction, body,
-                shield: new Shield(capacity: 200, regenRate: 25, regenDelay: 4),
+                shields: new FacetShields(capacityPerFacet: 70, regenRate: 25, regenDelay: 4),
                 hull: new Hull(120),
                 weapon: WeaponCatalog.PulseLaser(),
                 capacitor: new Capacitor(200, rechargeRate: 40),

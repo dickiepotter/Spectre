@@ -44,13 +44,13 @@ namespace RP.Spectre.Tests.World
         {
             var sys = new ProjectileSystem();
             var enemy = TargetAt(new Vector3d(1000, 0, 0));
-            double shieldBefore = enemy.Shield.Current;
+            double shieldBefore = enemy.ShieldCurrent;
 
             sys.Fire(Vector3d.Zero, new Vector3d(1, 0, 0), WeaponCatalog.Railgun(), Faction.Coalition);
             int hits = sys.Step(1.0, new[] { enemy }); // 1500 m/s * 1 s sweeps past x=1000
 
             hits.Should().Be(1);
-            enemy.Shield.Current.Should().BeLessThan(shieldBefore); // damage routed in
+            enemy.ShieldCurrent.Should().BeLessThan(shieldBefore); // damage routed in
             sys.Active.Should().BeEmpty();                          // round consumed on hit
         }
 
@@ -64,7 +64,7 @@ namespace RP.Spectre.Tests.World
             int hits = sys.Step(1.0, new[] { friend });
 
             hits.Should().Be(0);
-            friend.Shield.Current.Should().Be(friend.Shield.Capacity); // untouched
+            friend.ShieldCurrent.Should().Be(friend.ShieldCapacity); // untouched
         }
 
         [TestMethod]

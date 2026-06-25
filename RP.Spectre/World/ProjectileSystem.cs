@@ -89,7 +89,8 @@ namespace RP.Spectre.World
                 Combatant? victim = NearestHitAlong(start, end, p.Owner, targets);
                 if (victim is not null)
                 {
-                    DamageRouter.Apply(victim.Shield, victim.Hull, p.Damage, p.VsShield, p.VsHull, p.DamageType);
+                    // Route the hit through the facet facing where the round came from (its start point).
+                    DamageRouter.Apply(victim.ShieldForHitFrom(start), victim.Hull, p.Damage, p.VsShield, p.VsHull, p.DamageType);
                     hits++;
                     Expire(i);
                     continue;

@@ -24,7 +24,7 @@ namespace RP.Spectre.Tests.Ships
             ship.Body.Position.Should().Be(new Vector3d(100, 0, 0));
             ship.Body.Mass.Should().Be(spec.Mass);
             ship.Hull.MaxHp.Should().Be(spec.HullHp);
-            ship.Shield.Capacity.Should().Be(spec.ShieldCapacity);
+            ship.Shields[RP.Spectre.Combat.Facet.Fore].Capacity.Should().BeApproximately(spec.ShieldCapacity * ShipFactory.FacetCapacityFactor, 1e-6);
             ship.Radius.Should().Be(spec.Radius);
             ship.Alive.Should().BeTrue();
         }

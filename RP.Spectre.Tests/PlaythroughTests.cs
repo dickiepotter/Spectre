@@ -66,11 +66,11 @@ namespace RP.Spectre.Tests
                 {
                     Position = nearest.Body.Position,
                     Velocity = nearest.Body.Velocity,
-                    ShieldFraction = nearest.Shield.Current / nearest.Shield.Capacity,
+                    ShieldFraction = nearest.ShieldFraction,
                     HullFraction = nearest.Hull.Hp / nearest.Hull.MaxHp,
                 };
 
-                HudSnapshot hud = HudModel.Build(player.Body, player.Shield, player.Hull, player.Heat,
+                HudSnapshot hud = HudModel.Build(player.Body, player.Shields[RP.Spectre.Combat.Facet.Fore], player.Hull, player.Heat,
                     player.Capacitor, weaponReady: !player.Heat.IsOverheated, contact);
                 double.IsNaN(hud.Speed).Should().BeFalse();
 
