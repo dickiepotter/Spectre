@@ -5,6 +5,20 @@ A per-phase narrative of *what* was built, *why*, and every *deviation* from the
 
 ---
 
+## Phase 26 — MSAA (clean edges)
+
+- **4× multisample anti-aliasing** on the scene pass: the sky + hulls render into a multisampled HDR colour
+  target + multisampled depth, then **resolve** into the single-sample HDR image the bloom chain samples.
+  The device's supported count is queried and capped at 4×; falls back to 2×/1× automatically.
+- `CreateImage` gained a sample-count parameter; the depth buffer and a new `_hdrMsaaImage` are multisampled;
+  the mesh + sky pipelines render at `_msaaSamples`; the post pipelines stay 1×. Dynamic-rendering resolve
+  (`ResolveModeFlags.AverageBit`) does the downsample with no extra pass.
+- *Verified (bounded run):* logs `MSAA: 4x`, renders with **no validation errors**, survives the resize
+  (MSAA targets rebuilt), exit 0; 211 tests green.
+- *Next:* the diegetic **HUD/text** overlay.
+
+---
+
 ## Phase 25 — Particles: explosions + engine glow (bloom pays off)
 
 - **`RP.Spectre.World.ParticleSystem`**: pooled burst particles with a hot→cool colour ramp and a shrink-to-
