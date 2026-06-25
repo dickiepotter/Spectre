@@ -62,6 +62,8 @@ namespace RP.Spectre
             var battle = BuildBattle(seed: 20260625);
             var debris = new DebrisField(prewarm: 256);
             var particles = new ParticleSystem(prewarm: 1024);
+            // Near dust that streams past the cockpit so straight-line flight finally feels like motion.
+            var dust = new DustField(count: 520, halfExtent: 750, seed: 7);
             var wasAlive = new bool[battle.Combatants.Count];
             for (int i = 0; i < wasAlive.Length; i++) wasAlive[i] = battle.Combatants[i].Alive;
 
@@ -240,7 +242,8 @@ namespace RP.Spectre
                     audio.UpdateLoop(engineLoop, gain: 0.16f + 0.55f * sFrac, pitch: 0.70f + 0.65f * sFrac);
                 }
 
-                BuildInstances(battle, debris, projectiles, particles, positions, colors, scales, rotations);
+                dust.Update(ship.Position); // keep the dust cube wrapped around the player
+                BuildInstances(battle, debris, projectiles, particles, dust, positions, colors, scales, rotations);
                 renderer.SetInstances(
                     CollectionsMarshal.AsSpan(positions),
                     CollectionsMarshal.AsSpan(colors),
@@ -381,14 +384,28 @@ namespace RP.Spectre
         // Bright engine-glow tint (>1 so the HDR bloom makes it flare behind each ship).
         private static readonly Vector3 EngineGlow = new(1.4f, 2.0f, 3.2f);
 
+        private static readonly Vector3 DustColor = new(0.55f, 0.60f, 0.78f); // faint cool motes
+
         private static void BuildInstances(
             BattleSimulation battle, DebrisField debris, ProjectileSystem projectiles, ParticleSystem particles,
-            List<Vector3d> positions, List<Vector3> colors, List<float> scales, List<Vector4> rotations)
+            DustField dust, List<Vector3d> positions, List<Vector3> colors, List<float> scales, List<Vector4> rotations)
         {
             positions.Clear();
             colors.Clear();
             scales.Clear();
             rotations.Clear();
+
+            // Near dust first: faint, tiny motes streaming past to sell speed. Drawn before the action so the
+            // instance budget always favours ships/FX if it ever fills.
+            ReadOnlySpan<Vector3d> motes = dust.Points;
+            for (int i = 0; i < motes.Length && positions.Count < VulkanInstanceBudget; i++)
+            {
+                positions.Add(motes[i]);
+                float tw = 0.8f + 0.2f * ((i & 7) / 7f); // gentle per-mote brightness variation
+                colors.Add(DustColor * tw);
+                scales.Add(2.2f);
+                rotations.Add(default); // identity; keeps the list index-aligned with positions
+            }
 
             foreach (Combatant c in battle.Combatants)
             {
