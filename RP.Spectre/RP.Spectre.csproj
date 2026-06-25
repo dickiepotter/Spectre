@@ -23,4 +23,12 @@
     <ProjectReference Include="..\..\Game\RP.Game\RP.Game.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Ship model embedded so the hull mesh travels with the assembly (no loose asset to copy). The OBJ
+         is one of the resource models, loaded at start-up by ObjLoader and handed to the renderer. -->
+    <EmbeddedResource Include="Assets\Imperial.obj">
+      <LogicalName>Imperial.obj</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
 </Project>

@@ -75,10 +75,15 @@ namespace RP.Spectre
             var projectiles = new ProjectileSystem(prewarm: 256) { MaxRange = 6000 };
 
             // Reusable per-frame instance buffers (positions/colours/scales) for the renderer.
+            // FX instances (dust, engine glow, tracers, particles, debris) drawn on the cheap default mesh...
             var positions = new List<Vector3d>(VulkanInstanceBudget);
             var colors = new List<Vector3>(VulkanInstanceBudget);
             var scales = new List<float>(VulkanInstanceBudget);
-            var rotations = new List<Vector4>(VulkanInstanceBudget);
+            // ...and ship hulls drawn on the (loaded) ship model, with orientation.
+            var shipPositions = new List<Vector3d>(256);
+            var shipColors = new List<Vector3>(256);
+            var shipScales = new List<float>(256);
+            var shipRotations = new List<Vector4>(256);
             var hudLines = new List<HudVertex>(512);
 
             SpectreSettings settings = SaveSystem.LoadSettings();
@@ -105,6 +110,10 @@ namespace RP.Spectre
                 stackalloc Vector3[] { new Vector3(0.95f, 1.0f, 1.08f) },
                 stackalloc float[] { (float)carrierScale },
                 stackalloc Vector4[] { new Vector4((float)carrierRot.X, (float)carrierRot.Y, (float)carrierRot.Z, (float)carrierRot.W) });
+
+            // Upgrade the fighters from the built-in Dart to a real resource model (embedded OBJ). On any
+            // failure the renderer keeps the Dart, so the demo always renders.
+            TryLoadShipModel(renderer, log);
 
             int worldSeed = 1;
             if (interactive && SaveSystem.TryLoad(out SpectreSaveData? existingSave) && existingSave is not null)
@@ -243,12 +252,18 @@ namespace RP.Spectre
                 }
 
                 dust.Update(ship.Position); // keep the dust cube wrapped around the player
-                BuildInstances(battle, debris, projectiles, particles, dust, positions, colors, scales, rotations);
+                BuildInstances(battle, debris, projectiles, particles, dust,
+                    shipPositions, shipColors, shipScales, shipRotations,
+                    positions, colors, scales);
+                renderer.SetShipInstances(
+                    CollectionsMarshal.AsSpan(shipPositions),
+                    CollectionsMarshal.AsSpan(shipColors),
+                    CollectionsMarshal.AsSpan(shipScales),
+                    CollectionsMarshal.AsSpan(shipRotations));
                 renderer.SetInstances(
                     CollectionsMarshal.AsSpan(positions),
                     CollectionsMarshal.AsSpan(colors),
-                    CollectionsMarshal.AsSpan(scales),
-                    CollectionsMarshal.AsSpan(rotations));
+                    CollectionsMarshal.AsSpan(scales));
 
                 // Keep a live lock: drop a dead/missing target and auto-acquire the hostile nearest the
                 // boresight, so the reticule is always on something useful even before the player cycles.
@@ -386,78 +401,107 @@ namespace RP.Spectre
 
         private static readonly Vector3 DustColor = new(0.55f, 0.60f, 0.78f); // faint cool motes
 
+        // Splits the live scene into two instance streams: ship hulls (drawn on the loaded ship model, with
+        // orientation) and everything else — dust, engine glow, tracers, particles, debris — drawn as cheap
+        // points/blobs on the default mesh.
         private static void BuildInstances(
             BattleSimulation battle, DebrisField debris, ProjectileSystem projectiles, ParticleSystem particles,
-            DustField dust, List<Vector3d> positions, List<Vector3> colors, List<float> scales, List<Vector4> rotations)
+            DustField dust,
+            List<Vector3d> shipPositions, List<Vector3> shipColors, List<float> shipScales, List<Vector4> shipRotations,
+            List<Vector3d> fxPositions, List<Vector3> fxColors, List<float> fxScales)
         {
-            positions.Clear();
-            colors.Clear();
-            scales.Clear();
-            rotations.Clear();
+            shipPositions.Clear(); shipColors.Clear(); shipScales.Clear(); shipRotations.Clear();
+            fxPositions.Clear(); fxColors.Clear(); fxScales.Clear();
 
-            // Near dust first: faint, tiny motes streaming past to sell speed. Drawn before the action so the
-            // instance budget always favours ships/FX if it ever fills.
+            // Near dust: faint, tiny motes streaming past to sell speed.
             ReadOnlySpan<Vector3d> motes = dust.Points;
-            for (int i = 0; i < motes.Length && positions.Count < VulkanInstanceBudget; i++)
+            for (int i = 0; i < motes.Length && fxPositions.Count < VulkanInstanceBudget; i++)
             {
-                positions.Add(motes[i]);
+                fxPositions.Add(motes[i]);
                 float tw = 0.8f + 0.2f * ((i & 7) / 7f); // gentle per-mote brightness variation
-                colors.Add(DustColor * tw);
-                scales.Add(2.2f);
-                rotations.Add(default); // identity; keeps the list index-aligned with positions
+                fxColors.Add(DustColor * tw);
+                fxScales.Add(2.2f);
             }
 
             foreach (Combatant c in battle.Combatants)
             {
                 if (!c.Alive) continue;
-                var hullRot = ToVector4(c.Body.Orientation); // hull points along its heading (Phase 30)
-                positions.Add(c.Body.Position);
-                colors.Add(c.Faction == Faction.Coalition ? CoalitionColor : SeveranceColor);
-                scales.Add((float)(c.Radius * 2.0)); // unit hull -> ship-diameter hull
-                rotations.Add(hullRot);
 
-                // A glowing engine bloom trailing the direction of travel.
+                // The hull itself goes on the ship model, turned to face its heading (Phase 30).
+                shipPositions.Add(c.Body.Position);
+                shipColors.Add(c.Faction == Faction.Coalition ? CoalitionColor : SeveranceColor);
+                shipScales.Add((float)(c.Radius * 2.0)); // unit hull -> ship-diameter hull
+                shipRotations.Add(ToVector4(c.Body.Orientation));
+
+                // A glowing engine bloom trailing the direction of travel is an FX blob, not a hull.
                 double speed = c.Body.Velocity.Magnitude;
-                if (speed > 1.0 && positions.Count < VulkanInstanceBudget)
+                if (speed > 1.0 && fxPositions.Count < VulkanInstanceBudget)
                 {
                     Vector3d back = c.Body.Velocity / speed;
-                    positions.Add(c.Body.Position - back * (c.Radius * 1.3));
-                    colors.Add(EngineGlow);
-                    scales.Add((float)(c.Radius * 0.9));
-                    rotations.Add(hullRot); // keep the rotation list index-aligned with positions
+                    fxPositions.Add(c.Body.Position - back * (c.Radius * 1.3));
+                    fxColors.Add(EngineGlow);
+                    fxScales.Add((float)(c.Radius * 0.9));
                 }
             }
 
-            // Projectiles, particles and debris are points/blobs — leave them unrotated. Because they come
-            // after the ships, the SetInstances overload pads the remaining instances with identity for free.
             foreach (Projectile p in projectiles.Active)
             {
-                if (positions.Count >= VulkanInstanceBudget) break;
-                positions.Add(p.Position);
-                colors.Add(TracerColor);
-                scales.Add(10f);
+                if (fxPositions.Count >= VulkanInstanceBudget) break;
+                fxPositions.Add(p.Position);
+                fxColors.Add(TracerColor);
+                fxScales.Add(10f);
             }
 
             foreach (Particle p in particles.Active)
             {
-                if (positions.Count >= VulkanInstanceBudget) break;
-                positions.Add(p.Position);
-                colors.Add(ParticleSystem.ColorOf(p));
-                scales.Add(ParticleSystem.SizeOf(p));
+                if (fxPositions.Count >= VulkanInstanceBudget) break;
+                fxPositions.Add(p.Position);
+                fxColors.Add(ParticleSystem.ColorOf(p));
+                fxScales.Add(ParticleSystem.SizeOf(p));
             }
 
             foreach (RigidBody chunk in debris.Active)
             {
-                if (positions.Count >= VulkanInstanceBudget) break;
-                positions.Add(chunk.Position);
-                colors.Add(DebrisColor);
-                scales.Add(6f);
+                if (fxPositions.Count >= VulkanInstanceBudget) break;
+                fxPositions.Add(chunk.Position);
+                fxColors.Add(DebrisColor);
+                fxScales.Add(6f);
             }
         }
 
         /// <summary>Narrows a double orientation quaternion to the float <see cref="Vector4"/> (x,y,z,w) the
         /// renderer's per-instance rotation expects.</summary>
         private static Vector4 ToVector4(Quaternion q) => new((float)q.X, (float)q.Y, (float)q.Z, (float)q.W);
+
+        // A light steel base colour for the hull; the per-instance faction tint multiplies it into a blue
+        // (Coalition) or red (Severance) ship.
+        private static readonly Vector3 HullBaseColor = new(0.82f, 0.84f, 0.90f);
+
+        /// <summary>Loads the embedded ship OBJ and hands it to the renderer. Best-effort: any failure is
+        /// logged and the renderer keeps its built-in hull, so the game still draws.</summary>
+        private static void TryLoadShipModel(VulkanRenderer renderer, Logger log)
+        {
+            try
+            {
+                System.Reflection.Assembly asm = typeof(Program).Assembly;
+                using System.IO.Stream? stream = asm.GetManifestResourceStream("Imperial.obj");
+                if (stream is null)
+                {
+                    log.Warning("Model", "Embedded ship model 'Imperial.obj' not found; keeping the default hull.");
+                    return;
+                }
+
+                using var sr = new System.IO.StreamReader(stream);
+                string objText = sr.ReadToEnd();
+                Primitives.Mesh mesh = ObjLoader.Load(objText, HullBaseColor);
+                renderer.SetShipModel(mesh.Vertices, mesh.Indices);
+                log.Info("Model", $"Loaded ship hull from Imperial.obj ({mesh.Vertices.Length} verts).");
+            }
+            catch (Exception ex)
+            {
+                log.Warning("Model", $"Ship model load failed ({ex.Message}); keeping the default hull.");
+            }
+        }
 
         // The player flies for the Coalition, so Coalition ships are friendly (green IFF) and Severance
         // hostile (red IFF).
