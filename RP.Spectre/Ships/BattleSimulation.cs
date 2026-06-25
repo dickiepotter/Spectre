@@ -72,14 +72,18 @@ namespace RP.Spectre.Ships
                     Vector3d toTarget = target.Body.Position - ship.Body.Position;
                     double distance = toTarget.Magnitude;
 
-                    // Manoeuvre toward a firing position (lead the target)...
-                    Vector3d steer = Steering.Pursue(
+                    // Manoeuvre toward a firing position (lead the target)... The steering behaviours return a
+                    // velocity-error that reads as an *acceleration* intent (magnitude ~MaxSpeed), so it must be
+                    // multiplied by mass to become a force — otherwise a 60-tonne hull barely twitches and the
+                    // fleets never close. The resulting force is clamped to the ship's MaxThrust, which is what
+                    // makes light interceptors whip around and capitals turn like fortresses.
+                    Vector3d accel = Steering.Pursue(
                         ship.Body.Position, ship.Body.Velocity,
-                        target.Body.Position, target.Body.Velocity, MaxSpeed, MaxThrust);
+                        target.Body.Position, target.Body.Velocity, MaxSpeed, double.MaxValue);
 
                     // ...and shove away from whoever is too close, so the fight spreads out and swirls.
-                    steer += Steering.Separation(ship.Body.Position, _positionScratch, SeparationRadius, MaxThrust);
-                    ship.Body.ApplyForce(steer.ClampMagnitude(MaxThrust));
+                    accel += Steering.Separation(ship.Body.Position, _positionScratch, SeparationRadius, MaxSpeed);
+                    ship.Body.ApplyForce((accel * ship.Body.Mass).ClampMagnitude(MaxThrust));
 
                     // Fire when in range and the gun is ready (heat/capacitor permitting).
                     if (distance <= WeaponRange && ship.Weapon.TryFire(ship.Capacitor, ship.Heat))

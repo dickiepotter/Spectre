@@ -135,6 +135,17 @@ namespace RP.Spectre
                 log.Warning("Audio", $"Audio unavailable, continuing without it: {ex.Message}");
             }
 
+            // The soundscape: a looping engine drone pinned to the cockpit (retuned by speed each frame), a
+            // weapon blip reused per shot, and a few pre-baked explosion variants so kills boom without
+            // synthesising 1 s of PCM mid-firefight.
+            uint engineLoop = audio?.StartLoop(SoundBank.GenerateEngineDrone(), 44100, gain: 0.18f, pitch: 0.7f) ?? 0;
+            short[] zapPcm = SoundBank.GenerateZap();
+            short[][] booms = audio is null
+                ? Array.Empty<short[]>()
+                : new[] { SoundBank.GenerateExplosion(1), SoundBank.GenerateExplosion(2),
+                          SoundBank.GenerateExplosion(3), SoundBank.GenerateExplosion(4) };
+            int boomCounter = 0;
+
             var accumulator = new FixedTimestepAccumulator(fixedDeltaSeconds: 1.0 / 60.0);
             var time = new GameTime(accumulator.FixedDeltaSeconds, 0.0, 0);
             var clock = Stopwatch.StartNew();
@@ -197,12 +208,15 @@ namespace RP.Spectre
                     if (firing && playerGun.TryFire(playerCapacitor, playerHeat))
                     {
                         projectiles.Fire(ship.Position + ship.Forward * 6, ship.Forward, playerGun, Faction.Coalition);
+                        // A blip per shot, just off the nose, with a touch of pitch jitter so bursts don't drone.
+                        audio?.PlayAt(zapPcm, 44100, (Vector3)(ship.Position + ship.Forward * 6), gain: 0.45f,
+                            pitch: 0.95f + (i % 5) * 0.02f);
                     }
                     projectiles.Step(dt, battle.Combatants); // player shots damage the Severance hulls
 
                     debris.Step(dt);
                     particles.Step(dt);
-                    HandleNewKills(battle, debris, particles, wasAlive);
+                    HandleNewKills(battle, debris, particles, wasAlive, audio, booms, ref boomCounter);
                 }
 
                 // Floating origin follows the player so render coordinates stay small and precise.
@@ -220,6 +234,10 @@ namespace RP.Spectre
                 {
                     Vector3d forward = (renderer.Camera.Target - renderer.Camera.Position).NormalizeOrDefault();
                     audio.SetListener((Vector3)renderer.Camera.Position, Vector3.Zero, (Vector3)forward, Vector3.UnitY);
+
+                    // Engine drone rises with speed: a low idle hum that opens up to a roar under power.
+                    float sFrac = (float)Math.Min(ship.Velocity.Magnitude / 320.0, 1.0);
+                    audio.UpdateLoop(engineLoop, gain: 0.16f + 0.55f * sFrac, pitch: 0.70f + 0.65f * sFrac);
                 }
 
                 BuildInstances(battle, debris, projectiles, particles, positions, colors, scales, rotations);
@@ -312,18 +330,23 @@ namespace RP.Spectre
 
             // Two fleets drawn up facing off across the origin: far enough apart that they visibly charge and
             // close before the brawl, near enough that it joins within the demo's first seconds.
-            Wing(Faction.Coalition, -3200);
-            Wing(Faction.Severance, 3200);
+            Wing(Faction.Coalition, -1500);
+            Wing(Faction.Severance, 1500);
             return new BattleSimulation(ships)
             {
-                WeaponRange = 2200,
-                MaxSpeed = 360,        // brisk dogfighting pace (the player's own drive is the fast one)
+                WeaponRange = 2000,
+                // A dwell-paced brawl: fast enough to read as a dogfight, slow enough that ships linger in
+                // each other's guns and actually trade kills (jousting at 360 m/s barely scratched shields).
+                MaxSpeed = 190,
                 MaxThrust = 1_500_000,
             };
         }
 
-        // A ship's death: scatter debris and flash an explosion (hot white-orange cooling to red embers).
-        private static void HandleNewKills(BattleSimulation battle, DebrisField debris, ParticleSystem particles, bool[] wasAlive)
+        // A ship's death: scatter debris, flash an explosion (hot white-orange cooling to red embers), and
+        // thump a boom at the wreck (a pre-baked variant, pitched down for bigger hulls).
+        private static void HandleNewKills(
+            BattleSimulation battle, DebrisField debris, ParticleSystem particles, bool[] wasAlive,
+            AudioEngine? audio, short[][] booms, ref int boomCounter)
         {
             IReadOnlyList<Combatant> ships = battle.Combatants;
             for (int i = 0; i < ships.Count; i++)
@@ -339,6 +362,14 @@ namespace RP.Spectre
                     particles.Burst(dead.Body.Position, dead.Body.Velocity * 0.4, sparks,
                         speed: 40 + dead.Radius * 1.5, life: 1.4f, size: (float)(dead.Radius * 0.7),
                         hot: new Vector3(6f, 3.2f, 1.2f), cool: new Vector3(1.6f, 0.25f, 0.05f), rng: SharedFxRng);
+
+                    if (audio is not null && booms.Length > 0)
+                    {
+                        short[] boom = booms[boomCounter++ % booms.Length];
+                        float gain = (float)Math.Clamp(0.5 + dead.Radius * 0.05, 0.5, 1.4);
+                        float pitch = (float)Math.Clamp(1.3 - dead.Radius * 0.03, 0.7, 1.3);
+                        audio.PlayAt(boom, 44100, (Vector3)dead.Body.Position, gain, pitch);
+                    }
 
                     wasAlive[i] = false;
                 }
