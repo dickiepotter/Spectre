@@ -722,6 +722,42 @@ namespace RP.Spectre
             Light("THR", new Vector2(-0.18f, 0.92f), thrusting, new Vector3(0.4f, 1.1f, 0.5f));
             Light("FIRE", new Vector2(0.0f, 0.92f), firing, warn);
 
+            // --- Radar (top-right): contacts within range projected onto the ship's forward/right plane, so
+            // "up" on the dish is dead ahead. Friend green, foe red, the carrier waypoint cyan. ---
+            var radarCenter = new Vector2(0.80f, -0.66f);
+            float radarR = 0.15f;
+            const double radarRange = 9000.0;
+            int rseg = 22;
+            Vector2 rprev = default;
+            for (int k = 0; k <= rseg; k++)
+            {
+                double a = k * 2 * Math.PI / rseg;
+                var pt = new Vector2(radarCenter.X + (float)Math.Cos(a) * radarR * ax, radarCenter.Y + (float)Math.Sin(a) * radarR);
+                if (k > 0) Line(rprev, pt, frame);
+                rprev = pt;
+            }
+            Line(radarCenter + new Vector2(0, -radarR), radarCenter + new Vector2(0, -radarR - 0.025f), con); // ahead tick
+            Diamond(radarCenter, 0.008f, con); // the player at the centre
+
+            Vector3d radF = ship.Forward, radR = ship.Right;
+            void Blip(Vector3d worldPos, Vector3 col, float sz)
+            {
+                Vector3d rel = worldPos - ship.Position;
+                if (rel.MagnitudeSquared > radarRange * radarRange) return;
+                float bx = (float)(rel.DotProduct(radR) / radarRange);
+                float by = (float)(-rel.DotProduct(radF) / radarRange); // forward -> up (-y)
+                float m = (float)Math.Sqrt(bx * bx + by * by);
+                if (m > 1f) { bx /= m; by /= m; } // clamp contacts to the rim
+                Diamond(new Vector2(radarCenter.X + bx * radarR * ax, radarCenter.Y + by * radarR), sz, col);
+            }
+            foreach (Combatant c in battle.Combatants)
+            {
+                if (!c.Alive || c.IsPlayer) continue;
+                Blip(c.Body.Position, c.Faction == PlayerFaction ? FriendlyCol : HostileCol, 0.006f);
+            }
+            Blip(navPoint, NavCol, 0.011f); // the dock waypoint
+            Text("RADAR", new Vector2(radarCenter.X - 0.07f, radarCenter.Y + radarR + 0.06f), 0.030f, con);
+
             // --- Damage panels: a quadrant shield box (edges = facets, coloured green→red by charge) plus a
             // hull bar, for the player (own ship, bottom-right) and the locked target (top-left). ---
             Vector3 FacetCol(double f)
