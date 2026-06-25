@@ -5,6 +5,25 @@ A per-phase narrative of *what* was built, *why*, and every *deviation* from the
 
 ---
 
+## Phase 19 — The campaign spine  *(the Phase-12 deferral; progression + save tie met)*
+
+- **`RP.Spectre.Missions.Campaign`** + `MissionBrief`: an ordered list of story beats (name + briefing + a
+  descent flag) and a cursor that **advances only on a win** (a loss replays the same beat). `Progress` is
+  exactly the integer the save schema persists, so resuming drops the player back on the right mission; pure
+  progression bookkeeping, no battle state.
+- **`RP.Spectre.Missions.SpectreCampaign`**: the actual spine as data — *Shakedown → The Graveyard →
+  Severance Ambush → Into the Tantalus → The Core* — pivoting at the descent from open fleet combat to the
+  claustrophobic interior (the last two beats are inside the wreck).
+- *Verified:* starts on beat 0; a win advances, a loss/unfinished replays; winning the last beat completes
+  the campaign (Current → null, past-the-end is a no-op); progress **round-trips through `SpectreSaveData`**
+  (resume lands on the right beat); the spine opens in open space and ends inside the wreck; the resume cursor
+  is clamped to range. 7 tests.
+- *Deferred:* binding each beat to a concrete spawned `BattleSimulation`/`Wreck` setup (the encounter
+  authoring) and the briefing/cutscene presentation — the *progression* and its save tie are complete.
+- Tests: 780 RP.Math + 104 RP.Game + 103 Spectre = **987 total**.
+
+---
+
 ## Phase 18 — In-world projectiles + debris (pooled)  *(the Phase 4/5/6/8 deferral; acceptance met)*
 
 - **`RP.Game.Scene.ObjectPool<T>`** (engine): a reuse pool for short-lived objects so a firefight never
