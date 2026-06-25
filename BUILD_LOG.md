@@ -5,6 +5,26 @@ A per-phase narrative of *what* was built, *why*, and every *deviation* from the
 
 ---
 
+## Phase 24 — HDR + bloom (the glow that sells space combat)
+
+The biggest single "stunning" lever: the scene now renders to a floating-point HDR target and is bloomed
+before tonemapping, so engines, tracers and rim glints **bleed light** instead of just being bright.
+
+- **Off-screen HDR rendering** (`VulkanRenderer.Post.cs`): sky + hulls render into an `R16G16B16A16_SFLOAT`
+  target (the scene pipelines were repointed to this format) keeping bright values above 1.0. `mesh.frag` no
+  longer tonemaps — it outputs linear HDR.
+- **Bloom chain**: a **bright-pass** (`bright.frag`) extracts the HDR overshoot into a half-res buffer; a
+  **separable Gaussian** (`blur.frag`, push-constant direction) blurs it across two ping-pong targets; the
+  **composite** (`composite.frag`) adds the bloom back and applies the single ACES tonemap into the swapchain.
+- **The renderer's first descriptor sets**: the post passes sample textures, so this adds a descriptor pool,
+  two combined-image-sampler set layouts, a linear sampler, and per-pass sets — re-pointed on resize.
+- *Verified (bounded run):* the full multi-pass chain renders with **no validation errors**, survives the
+  scripted resize (HDR/bloom targets rebuilt + descriptors re-written), and tears down clean (exit 0); 208
+  tests green.
+- *Next:* explosion/thruster **particles**, **MSAA**, and the diegetic **HUD/text** overlay.
+
+---
+
 ## Phase 23 — Toward a stunning look: starfield backdrop + space lighting + scale
 
 The first leap of a multi-phase rendering overhaul aimed at an AAA space-combat feel.
