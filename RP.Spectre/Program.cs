@@ -50,7 +50,10 @@ namespace RP.Spectre
             window.Initialize();
 
             using var renderer = new VulkanRenderer(window, log, enableValidation: true);
-            window.FramebufferResize += (Vector2D<int> _) => renderer.NotifyResize();
+            // A resize tears the swapchain down and back up; GLFW also drops the cursor lock, so flag it for
+            // re-capture (otherwise the mouse stops steering after a resize).
+            bool framebufferResized = false;
+            window.FramebufferResize += (Vector2D<int> _) => { renderer.NotifyResize(); framebufferResized = true; };
 
             // The player: a free-flying cockpit, held back and looking down the +Z axis at the engagement,
             // which is centred on the world origin. Default orientation faces -Z, so the fight is dead ahead.
@@ -175,11 +178,15 @@ namespace RP.Spectre
                 {
                     shipController.ReadControls(keyboard, mouse);
 
-                    // Mirror the controller's capture intent to the OS cursor whenever it changes.
-                    if (shipController.MouseCaptured != cursorCaptureApplied || renderedFrames == 0)
+                    // Mirror the controller's capture intent to the OS cursor whenever it changes, and re-assert
+                    // it after a resize (which drops the lock). On a forced re-capture, clear the steering
+                    // baseline so the warped cursor doesn't fling the ship for one frame.
+                    if (shipController.MouseCaptured != cursorCaptureApplied || renderedFrames == 0 || framebufferResized)
                     {
                         ApplyCursorCapture(mouse, shipController.MouseCaptured);
                         cursorCaptureApplied = shipController.MouseCaptured;
+                        shipController.ResetMouseBaseline();
+                        framebufferResized = false;
                     }
 
                     bool quicksaveKey = keyboard.IsKeyPressed(Key.F5);

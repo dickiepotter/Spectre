@@ -76,6 +76,10 @@ namespace RP.Spectre.World
             Ship.InertiaScalar = 9_000.0;
         }
 
+        /// <summary>Forgets the last mouse position, so the next frame's steering delta is zero. Call after a
+        /// cursor warp (capture toggle, window resize) to avoid a one-frame fling.</summary>
+        public void ResetMouseBaseline() => _hasLastMouse = false;
+
         /// <summary>Samples input once per rendered frame into a thrust/rate intent for the fixed steps.</summary>
         public void ReadControls(IKeyboard keyboard, IMouse mouse)
         {
