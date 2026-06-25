@@ -5,6 +5,29 @@ A per-phase narrative of *what* was built, *why*, and every *deviation* from the
 
 ---
 
+## Phase 23 — Toward a stunning look: starfield backdrop + space lighting + scale
+
+The first leap of a multi-phase rendering overhaul aimed at an AAA space-combat feel.
+
+- **Procedural deep-space backdrop** (`sky.vert`/`sky.frag` + a dedicated `_skyPipeline`): a full-screen
+  triangle (no vertex buffer) drawn behind the scene with depth off, generating a faint **fbm nebula** under
+  three layered **starfields** from a view ray reconstructed off the camera basis — so it parallaxes as you
+  turn. No textures; all procedural.
+- **Per-pixel space lighting** (rewritten `mesh.vert`/`mesh.frag`): warm key + cool fill + ambient, a strong
+  cool **rim/fresnel** that carves each hull's silhouette out of the black, a specular glint, a self-
+  **emissive** term so engine tails and tracers glow, and a **Narkowicz ACES tonemap** (output linear; the
+  `_SRGB` swapchain does the encode). Camera position rides in the push constant (now 80 B, dropping the
+  always-identity spin matrix to fit the 128 B limit).
+- **Sense of scale:** the battle grew to **~60 ships** over a multi-kilometre spread, the player sits back to
+  take it in, and the camera far plane went 1 km → **80 km** so capitals read across the void.
+- *Verified (bounded run):* `--frames` shows the backdrop + 60/60 lit hulls, survives the resize, tears down
+  clean, **no validation errors** (exit 0); 208 tests green.
+- *Next levers (still to do for "stunning"):* **HDR + bloom** (offscreen target → bright-pass → blur →
+  composite — the biggest single glow win), **thruster plumes / explosions** (particles), the **diegetic
+  HUD/text** pass, and **MSAA/anti-aliasing**.
+
+---
+
 ## Phase 22 — Ships, not cubes + the player can shoot
 
 - **Procedural ship mesh** (`RP.Game.Rendering.Primitives`): a low-poly `Dart` hull — a faceted spindle

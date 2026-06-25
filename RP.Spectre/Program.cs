@@ -53,7 +53,7 @@ namespace RP.Spectre
 
             // The player: a free-flying cockpit, held back and looking down the +Z axis at the engagement,
             // which is centred on the world origin. Default orientation faces -Z, so the fight is dead ahead.
-            var ship = new RigidBody { Position = new Vector3d(0, 120, 900) };
+            var ship = new RigidBody { Position = new Vector3d(0, 600, 5200) };
             var shipController = new ShipController(ship);
             var floatingOrigin = new FloatingOrigin(rebaseThreshold: 4096);
 
@@ -78,6 +78,8 @@ namespace RP.Spectre
             SpectreSettings settings = SaveSystem.LoadSettings();
             shipController.FlightAssist = settings.FlightAssistDefault;
             renderer.Camera.FieldOfView = new Angle(settings.FieldOfViewDegrees, AngleUnits.DEG);
+            renderer.Camera.NearPlane = 1.0;      // cockpit scale
+            renderer.Camera.FarPlane = 80_000.0;  // see ships and capitals kilometres out — the void is vast
             renderer.ClearColor = (0.01f, 0.01f, 0.02f, 1f); // deep space
             renderer.ModelTransform = Matrix.Identity;        // hulls don't spin; the battle moves them
             bool interactive = maxFrames <= 0;
@@ -236,20 +238,23 @@ namespace RP.Spectre
             void Wing(Faction faction, double centreX)
             {
                 bool coalition = faction == Faction.Coalition;
-                double Spread() => (rng.NextDouble() - 0.5) * 500;
-                Vector3d At() => new Vector3d(centreX + Spread() * 0.3, Spread(), Spread());
+                double Spread() => (rng.NextDouble() - 0.5) * 2600;
+                Vector3d At() => new Vector3d(centreX + Spread() * 0.25, Spread(), Spread());
 
                 // Light fighters use the Wasp hull, re-flagged to this wing's faction.
-                for (int i = 0; i < 8; i++)
+                for (int i = 0; i < 22; i++)
                     ships.Add(ShipFactory.Build(ShipCatalog.SeveranceWasp(), At(), faction));
-                for (int i = 0; i < 3; i++)
+                for (int i = 0; i < 6; i++)
                     ships.Add(ShipFactory.Build(coalition ? ShipCatalog.CoalitionCorvette() : ShipCatalog.SeveranceHornet(), At()));
-                ships.Add(ShipFactory.Build(coalition ? ShipCatalog.CoalitionCruiser() : ShipCatalog.SeveranceLocust(), new Vector3d(centreX, 0, 0)));
+                for (int i = 0; i < 2; i++)
+                    ships.Add(ShipFactory.Build(coalition ? ShipCatalog.CoalitionCruiser() : ShipCatalog.SeveranceLocust(),
+                        new Vector3d(centreX, (i - 0.5) * 400, (i - 0.5) * 600)));
             }
 
-            Wing(Faction.Coalition, -700);
-            Wing(Faction.Severance, 700);
-            return new BattleSimulation(ships);
+            // Two fleets a few kilometres apart, closing across the void.
+            Wing(Faction.Coalition, -2600);
+            Wing(Faction.Severance, 2600);
+            return new BattleSimulation(ships) { WeaponRange = 2200 };
         }
 
         private static void SpawnDebrisForNewKills(BattleSimulation battle, DebrisField debris, bool[] wasAlive)
