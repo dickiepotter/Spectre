@@ -5,6 +5,29 @@ A per-phase narrative of *what* was built, *why*, and every *deviation* from the
 
 ---
 
+## Phase 14 — Ship roster as data + capital broadsides  *(the Phase-7 deferral; acceptance met)*
+
+- **`RP.Spectre.Ships.ShipClass`** + **`ShipCatalog`**: the roster as data (S18) — the Coalition line
+  (Lance corvette → Warden frigate → Sentinel cruiser → Bastion carrier), the Severance insect hulls
+  (**Wasp** interceptor → Hornet → Locust → **Hive** carrier), and the player **Spectre** (prototype-armed,
+  fastest). Stats scale monotonically with `HullClass` (bigger = tankier, slower, more hardpoints), so a
+  fight reads as a clear pecking order; init-only props so a class reads as a flat table entry like
+  `WeaponCatalog`. Balancing is a data edit.
+- **`RP.Spectre.Ships.ShipFactory`**: the one place a stat block becomes a live `Combatant` (with an optional
+  faction re-flag for captured hulls), so spawning is "pick classes, place them".
+- **`RP.Spectre.Ships.BroadsideArray`**: capital firing-arc logic — a target's local direction picks which
+  batteries (Fore/Aft/Port/Starboard/Dorsal/Ventral) **bear**, so a capital fights by *presenting a side*
+  rather than nosing in; overlapping arcs reward holding a target on the quarter (two batteries at once).
+- *Verified:* the factory builds a combatant faithful to its spec (and re-flags faction); stats scale across
+  the size tiers; the Wasp matches the canonical interceptor the earlier hand-built battle used; the Spectre
+  is the fast prototype; and broadside arcs engage the correct side, double up on a quarter, and leave a gap
+  when narrowed. 5 roster + 5 broadside = 10 tests.
+- *Deferred:* multi-weapon firing in `BattleSimulation` (it drives one weapon per ship today) and a
+  capital-vs-capital sim that drives the broadside batteries build on this data + arc core.
+- Tests: 780 RP.Math + 93 RP.Game + 67 Spectre = **940 total**.
+
+---
+
 ## Phase 13 — The descent: tumbling wreck + interior streaming  *(local-frame core met; rendering deferred)*
 
 - **`RP.Game.Scene.ReferenceFrame`** (engine): a moving, rotating local coordinate frame — a world authored
