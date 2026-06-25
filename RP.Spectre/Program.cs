@@ -99,6 +99,8 @@ namespace RP.Spectre
                 log.Info("Save", $"Continued from save (ship at {existingSave.ShipPosition.ToVector():0}).");
             }
             bool previousQuicksaveKey = false;
+            bool previousTargetKey = false;
+            Combatant? lockedTarget = null;
 
             IInputContext input = window.CreateInput();
             IKeyboard? keyboard = input.Keyboards.Count > 0 ? input.Keyboards[0] : null;
@@ -151,6 +153,14 @@ namespace RP.Spectre
                         log.Info("Save", "Quicksaved.");
                     }
                     previousQuicksaveKey = quicksaveKey;
+
+                    // Tab cycles the locked target through the contacts nearest the boresight (friend or foe).
+                    bool targetKey = keyboard.IsKeyPressed(Key.Tab);
+                    if (targetKey && !previousTargetKey)
+                    {
+                        lockedTarget = CycleTarget(battle, ship, lockedTarget);
+                    }
+                    previousTargetKey = targetKey;
                 }
 
                 int steps = accumulator.Advance(frameSeconds);
@@ -205,8 +215,16 @@ namespace RP.Spectre
                     CollectionsMarshal.AsSpan(scales),
                     CollectionsMarshal.AsSpan(rotations));
 
+                // Keep a live lock: drop a dead/missing target and auto-acquire the hostile nearest the
+                // boresight, so the reticule is always on something useful even before the player cycles.
+                if (lockedTarget is null || !lockedTarget.Alive)
+                {
+                    lockedTarget = AcquireNearestHostile(battle, ship);
+                }
+
                 float aspect = renderer.Camera.AspectRatio <= 0 ? 16f / 9f : (float)renderer.Camera.AspectRatio;
-                BuildHud(renderer.Camera.ViewProjection, floatingOrigin.Origin, ship, playerHeat, battle, aspect, hudLines);
+                BuildHud(renderer.Camera.ViewProjection, floatingOrigin.Origin, ship, playerHeat, battle,
+                    lockedTarget, playerGun.ProjectileSpeed, aspect, hudLines);
                 renderer.SetHudLines(CollectionsMarshal.AsSpan(hudLines));
 
                 renderer.DrawFrame(accumulator.Alpha);
@@ -375,22 +393,38 @@ namespace RP.Spectre
         /// renderer's per-instance rotation expects.</summary>
         private static Vector4 ToVector4(Quaternion q) => new((float)q.X, (float)q.Y, (float)q.Z, (float)q.W);
 
+        // The player flies for the Coalition, so Coalition ships are friendly (green IFF) and Severance
+        // hostile (red IFF).
+        private const Faction PlayerFaction = Faction.Coalition;
+        private static readonly Vector3 FriendlyCol = new(0.25f, 1.15f, 0.45f); // green
+        private static readonly Vector3 HostileCol = new(1.25f, 0.40f, 0.30f);  // red
+
         // --- HUD (build brief S14): a peripheral, geometric overlay built from the player + target state and
-        // projected to screen space. Lines only (no font yet); colours kept bright so they read over bloom. ---
+        // projected to screen space. Lines only (no font yet); colours kept bright so they read over bloom.
+        // Friend/foe is colour-coded — green for Coalition, red for Severance — across IFF pips and the
+        // locked-target reticule, which can sit on a friendly or a hostile. ---
         private static void BuildHud(
             Matrix viewProj, Vector3d renderOrigin, RigidBody ship, Combat.HeatSink playerHeat,
-            BattleSimulation battle, float aspect, List<HudVertex> lines)
+            BattleSimulation battle, Combatant? target, double projectileSpeed, float aspect, List<HudVertex> lines)
         {
             lines.Clear();
             var hud = new Vector3(0.25f, 0.9f, 1.1f);
             var prograde = new Vector3(0.4f, 1.1f, 0.55f);
-            var targetCol = new Vector3(1.2f, 0.45f, 0.35f);
             float ax = aspect <= 0 ? 1f : 1f / aspect; // scale x so shapes stay square
 
             void Line(Vector2 a, Vector2 b, Vector3 c)
             {
                 lines.Add(new HudVertex(a, c));
                 lines.Add(new HudVertex(b, c));
+            }
+
+            void Diamond(Vector2 c, float r, Vector3 col)
+            {
+                var up = c + new Vector2(0, r);
+                var dn = c + new Vector2(0, -r);
+                var rt = c + new Vector2(r * ax, 0);
+                var lf = c + new Vector2(-r * ax, 0);
+                Line(up, rt, col); Line(rt, dn, col); Line(dn, lf, col); Line(lf, up, col);
             }
 
             bool Project(Vector3d world, out Vector2 ndc)
@@ -419,33 +453,59 @@ namespace RP.Spectre
             double speed = ship.Velocity.Magnitude;
             if (speed > 1.0 && Project(ship.Position + ship.Velocity / speed * 3000.0, out Vector2 pg))
             {
-                float r = 0.022f;
-                var up = pg + new Vector2(0, r);
-                var dn = pg + new Vector2(0, -r);
-                var rt = pg + new Vector2(r * ax, 0);
-                var lf = pg + new Vector2(-r * ax, 0);
-                Line(up, rt, prograde); Line(rt, dn, prograde); Line(dn, lf, prograde); Line(lf, up, prograde);
+                Diamond(pg, 0.022f, prograde);
             }
 
-            // Nearest hostile: corner brackets + a hull bar.
-            Combatant? target = NearestHostile(battle, ship.Position);
-            if (target is not null && Project(target.Body.Position, out Vector2 t))
+            // IFF pips: a small faction-coloured diamond on every contact in front of the camera, so the whole
+            // battlefield reads friend (green) / foe (red) at a glance.
+            foreach (Combatant c in battle.Combatants)
             {
-                float s = 0.05f, e = 0.025f; // bracket half-size and arm length
-                float sx = s * ax, ex = e * ax;
-                // Four corners, each an L.
-                Line(new Vector2(t.X - sx, t.Y + s), new Vector2(t.X - sx + ex, t.Y + s), targetCol);
-                Line(new Vector2(t.X - sx, t.Y + s), new Vector2(t.X - sx, t.Y + s - e), targetCol);
-                Line(new Vector2(t.X + sx, t.Y + s), new Vector2(t.X + sx - ex, t.Y + s), targetCol);
-                Line(new Vector2(t.X + sx, t.Y + s), new Vector2(t.X + sx, t.Y + s - e), targetCol);
-                Line(new Vector2(t.X - sx, t.Y - s), new Vector2(t.X - sx + ex, t.Y - s), targetCol);
-                Line(new Vector2(t.X - sx, t.Y - s), new Vector2(t.X - sx, t.Y - s + e), targetCol);
-                Line(new Vector2(t.X + sx, t.Y - s), new Vector2(t.X + sx - ex, t.Y - s), targetCol);
-                Line(new Vector2(t.X + sx, t.Y - s), new Vector2(t.X + sx, t.Y - s + e), targetCol);
+                if (!c.Alive) continue;
+                if (!Project(c.Body.Position, out Vector2 p)) continue;
+                if (Math.Abs(p.X) > 1.15f || Math.Abs(p.Y) > 1.15f) continue;
+                Diamond(p, 0.012f, c.Faction == PlayerFaction ? FriendlyCol : HostileCol);
+            }
 
-                float hull = (float)(target.Hull.Hp / target.Hull.MaxHp);
-                float barY = t.Y - s - 0.02f;
-                Line(new Vector2(t.X - sx, barY), new Vector2(t.X - sx + 2 * sx * hull, barY), targetCol);
+            // Locked target: a bold reticule coloured by allegiance, with a hull bar; an edge arrow when it is
+            // off-screen; and, for a hostile, a lead pip showing where to put the pipper to hit it.
+            if (target is not null && target.Alive)
+            {
+                Vector3 tcol = target.Faction == PlayerFaction ? FriendlyCol : HostileCol;
+                if (Project(target.Body.Position, out Vector2 t) && Math.Abs(t.X) <= 1.2f && Math.Abs(t.Y) <= 1.2f)
+                {
+                    float s = 0.05f, e = 0.025f; // bracket half-size and arm length
+                    float sx = s * ax, ex = e * ax;
+                    Line(new Vector2(t.X - sx, t.Y + s), new Vector2(t.X - sx + ex, t.Y + s), tcol);
+                    Line(new Vector2(t.X - sx, t.Y + s), new Vector2(t.X - sx, t.Y + s - e), tcol);
+                    Line(new Vector2(t.X + sx, t.Y + s), new Vector2(t.X + sx - ex, t.Y + s), tcol);
+                    Line(new Vector2(t.X + sx, t.Y + s), new Vector2(t.X + sx, t.Y + s - e), tcol);
+                    Line(new Vector2(t.X - sx, t.Y - s), new Vector2(t.X - sx + ex, t.Y - s), tcol);
+                    Line(new Vector2(t.X - sx, t.Y - s), new Vector2(t.X - sx, t.Y - s + e), tcol);
+                    Line(new Vector2(t.X + sx, t.Y - s), new Vector2(t.X + sx - ex, t.Y - s), tcol);
+                    Line(new Vector2(t.X + sx, t.Y - s), new Vector2(t.X + sx, t.Y - s + e), tcol);
+
+                    float hull = (float)(target.Hull.Hp / target.Hull.MaxHp);
+                    float barY = t.Y - s - 0.02f;
+                    Line(new Vector2(t.X - sx, barY), new Vector2(t.X - sx + 2 * sx * hull, barY), tcol);
+                }
+                else
+                {
+                    // Off-screen (or behind): point an arrow from screen centre toward the target.
+                    DrawOffScreenArrow(Line, target.Body.Position - ship.Position, ship, viewProj, renderOrigin, ax, tcol);
+                }
+
+                // Firing solution: lead the hostile by the round's travel time and mark the aim point.
+                if (target.Faction != PlayerFaction && projectileSpeed > 1.0)
+                {
+                    double dist = (target.Body.Position - ship.Position).Magnitude;
+                    double leadTime = dist / projectileSpeed;
+                    Vector3d aim = target.Body.Position + target.Body.Velocity * leadTime;
+                    if (Project(aim, out Vector2 a))
+                    {
+                        Line(new Vector2(a.X - 0.02f * ax, a.Y), new Vector2(a.X + 0.02f * ax, a.Y), tcol);
+                        Line(new Vector2(a.X, a.Y - 0.02f), new Vector2(a.X, a.Y + 0.02f), tcol);
+                    }
+                }
             }
 
             // Bottom-left gauges: speed and weapon heat.
@@ -456,17 +516,73 @@ namespace RP.Spectre
             Line(new Vector2(-0.9f, -0.89f), new Vector2(-0.9f + 0.28f * heatFrac, -0.89f), heatCol);
         }
 
-        private static Combatant? NearestHostile(BattleSimulation battle, Vector3d from)
+        // Points a chevron from screen centre toward an off-screen/behind target, using the camera basis to
+        // turn the world direction into a screen direction.
+        private static void DrawOffScreenArrow(
+            Action<Vector2, Vector2, Vector3> line, Vector3d toTargetWorld, RigidBody ship,
+            Matrix viewProj, Vector3d renderOrigin, float ax, Vector3 col)
         {
-            Combatant? best = null;
-            double bestSq = double.PositiveInfinity;
+            Vector3d fwd = ship.Forward, up = ship.Up, right = ship.Right;
+            double sx = toTargetWorld.DotProduct(right);
+            double sy = toTargetWorld.DotProduct(up);
+            var dir = new Vector2((float)sx, (float)sy);
+            if (dir.LengthSquared < 1e-9) return;
+            dir = dir.Normalize();
+            var tip = new Vector2(dir.X * 0.5f * ax, dir.Y * 0.5f);
+            var baseC = tip * 0.85f;
+            var perp = new Vector2(-dir.Y, dir.X);
+            line(tip, baseC + perp * 0.03f, col);
+            line(tip, baseC - perp * 0.03f, col);
+        }
+
+        /// <summary>Auto-acquires the hostile best lined up with the boresight: among hostiles in front, the
+        /// one at the smallest angle off the nose; failing that, the nearest by distance.</summary>
+        private static Combatant? AcquireNearestHostile(BattleSimulation battle, RigidBody ship)
+        {
+            Vector3d fwd = ship.Forward;
+            Combatant? bestAhead = null; double bestDot = -1;
+            Combatant? bestAny = null; double bestSq = double.PositiveInfinity;
+
             foreach (Combatant c in battle.Combatants)
             {
-                if (!c.Alive || c.Faction != Faction.Severance) continue;
-                double d = (c.Body.Position - from).MagnitudeSquared;
-                if (d < bestSq) { bestSq = d; best = c; }
+                if (!c.Alive || c.Faction == PlayerFaction) continue;
+                Vector3d to = c.Body.Position - ship.Position;
+                double sq = to.MagnitudeSquared;
+                if (sq < bestSq) { bestSq = sq; bestAny = c; }
+
+                double mag = Math.Sqrt(sq);
+                if (mag > 1e-6)
+                {
+                    double dot = to.DotProduct(fwd) / mag;
+                    if (dot > 0.2 && dot > bestDot) { bestDot = dot; bestAhead = c; }
+                }
             }
-            return best;
+
+            return bestAhead ?? bestAny;
+        }
+
+        /// <summary>Cycles the locked target to the next contact (friend or foe) ordered by how far off the nose
+        /// it sits, so repeated presses sweep across what is in front of the player.</summary>
+        private static Combatant? CycleTarget(BattleSimulation battle, RigidBody ship, Combatant? current)
+        {
+            Vector3d fwd = ship.Forward;
+            var ordered = new List<Combatant>();
+            foreach (Combatant c in battle.Combatants)
+            {
+                if (c.Alive) ordered.Add(c);
+            }
+            if (ordered.Count == 0) return null;
+
+            double Angle(Combatant c)
+            {
+                Vector3d to = c.Body.Position - ship.Position;
+                double mag = to.Magnitude;
+                return mag < 1e-6 ? 0 : Math.Acos(Math.Clamp(to.DotProduct(fwd) / mag, -1, 1));
+            }
+
+            ordered.Sort((a, b) => Angle(a).CompareTo(Angle(b)));
+            int index = current is null ? -1 : ordered.IndexOf(current);
+            return ordered[(index + 1) % ordered.Count];
         }
 
         /// <summary>
