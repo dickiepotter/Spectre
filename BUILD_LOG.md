@@ -5,6 +5,31 @@ A per-phase narrative of *what* was built, *why*, and every *deviation* from the
 
 ---
 
+## Phase 20 — Systems complete: capstone integration + state of the build
+
+- **Capstone playthrough** (`RP.Spectre.Tests.PlaythroughTests`): one campaign beat played **end to end,
+  headless**, exercising the whole stack at once — the data-driven roster (`ShipFactory`), difficulty-scaled
+  spawns (`Encounter`), `BattleSimulation`, the `Mission` rules, the `HudModel` snapshot and the
+  `TensionDirector` — and asserting the beat resolves to **Succeeded**, the player ward survives, no transform
+  goes NaN, the tension director registered the fight, and **the win advances the campaign** to the next beat.
+  This is the proof the parts *fit*, not just that each works alone. 1 test.
+- **State of the build.** Every game system now has a tested headless core:
+  - *Engine (`RP.Game`)* — Vulkan 1.3 bring-up, instancing, frustum culling, depth; fixed-timestep loop;
+    logging; `RigidBody` 6-DoF physics + collision; `FloatingOrigin`; `ReferenceFrame` + `ChunkStreamer`;
+    `SimTierManager`; steering AI; `ObjectPool`; app-state machine + `Menu`; audio math; save store.
+  - *Game (`RP.Spectre`)* — flight (`ShipController`); combat (shields/hull/damage/weapons/heat/capacitor/
+    facets/lead/point-defence/impact); sensors/EW; ships roster + battle + broadsides; the *Tantalus* wreck;
+    projectiles + debris; missions/difficulty/campaign; HUD model; menu trees; adaptive audio; save schema.
+- **What remains — the GPU/art layer (human-verified "smoke pass", per the brief).** The instanced *draw* of
+  battles, projectiles, debris and the wreck interior; the **text-rendering pass** that turns the `HudModel`
+  and the `Menu`/`SpectreMenus` models into pixels; interior meshes/materials; and audio-stem playback +
+  crossfade driven by the `TensionDirector`. Each consumes a system whose *logic* is finished and tested here;
+  none can be verified without a human at the screen, which is why they are the remaining work rather than
+  more headless phases.
+- Tests: 780 RP.Math + 104 RP.Game + 104 Spectre = **988 total**, all green.
+
+---
+
 ## Phase 19 — The campaign spine  *(the Phase-12 deferral; progression + save tie met)*
 
 - **`RP.Spectre.Missions.Campaign`** + `MissionBrief`: an ordered list of story beats (name + briefing + a
